@@ -1,0 +1,14 @@
+name: Native review smoke
+
+on:
+  workflow_dispatch:
+
+permissions: { contents: read }
+
+jobs:
+  native-review-smoke:
+    runs-on: ubuntu-latest
+    environment: production-first-start
+    steps:
+      - name: Confirm native review gate passed
+        run: echo NATIVE_REVIEW_SMOKE_PASS
