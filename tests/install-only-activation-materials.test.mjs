@@ -187,10 +187,10 @@ test("workflow remains manual, protected, SHA-pinned, and literal-disabled", () 
   const workflow = readFileSync(new URL("../.github/workflows/install-only-activation-materials.yml", import.meta.url), "utf8");
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /environment: production-first-start/);
-  assert.match(workflow, /publish-materials:\n    if: \$\{\{ false \}\}/);
+  assert.match(workflow, /publish-materials:\n    if: \$\{\{ github.event_name == 'workflow_dispatch' && github.ref == 'refs\/heads\/main' && github.run_attempt == 1 \}\}/);
   assert.match(workflow, /GITHUB_RUN_ATTEMPT" == 1/);
   assert.match(workflow, /actions\/runs\/\$GITHUB_RUN_ID\/approvals/);
-  assert.match(workflow, /publish-materials:\n    if: \$\{\{ false \}\}[^\n]*\n[\s\S]*?    permissions:\n      actions: read\n      contents: read/);
+  assert.match(workflow, /publish-materials:\n    if: \$\{\{ github.event_name == 'workflow_dispatch' && github.ref == 'refs\/heads\/main' && github.run_attempt == 1 \}\}[^\n]*\n[\s\S]*?    permissions:\n      actions: read\n      contents: read/);
   assert.equal((workflow.match(/\n      actions: read\n/g) ?? []).length, 1);
   assert.doesNotMatch(workflow, /\n\s+actions: write/);
   assert.match(workflow, /actions\/checkout@[0-9a-f]{40}/);
