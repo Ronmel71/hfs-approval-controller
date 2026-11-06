@@ -1,0 +1,32 @@
+name: Stage-only review
+run-name: Stage-only review · ${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Random opaque one-use stage request identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage-only-review-${{ inputs.request_id }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    environment: production-first-start
+    timeout-minutes: 5
+    steps:
+      - name: Validate opaque request and emit harmless marker
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+          printf 'STAGE_ONLY_REVIEW_APPROVED\n'
