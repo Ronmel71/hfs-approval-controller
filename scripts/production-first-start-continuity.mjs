@@ -13,6 +13,7 @@ export const ENVIRONMENT = "production-first-start";
 export const REVIEWER_LOGIN = "Ronmel71";
 export const REVIEWER_ID = 321374159;
 export const FORBIDDEN_SMOKE_RUN_ID = "42130962231";
+export const SOURCE_AUTHENTICATION_BLOCK = "PROVIDER_ATTESTATION_NOT_AUTHENTICATED";
 
 const HASH = /^[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -230,11 +231,17 @@ function validatePrivateProvenance({ privateRun, privateJob, artifact, probe, ex
   return { digest, expectedName };
 }
 
-export function buildEnvelope({ probe, expected, expectedDigest, phase, beforeProbe = null, controllerRun, approvals, privateRun, privateJob, artifact, controllerHeadSha, privateJobId, now = Math.floor(Date.now() / 1000), privateKeyPem }) {
+export function buildEnvelope({ probe, expected, expectedDigest, phase, beforeProbe = null, controllerRun, approvals, privateRun, privateJob, artifact, controllerHeadSha, privateJobId, now = Math.floor(Date.now() / 1000), privateKeyPem, codeOnlyTestMode = false }) {
   const environment = validateController(controllerRun, approvals, controllerHeadSha);
   const verified = validateProbe(probe, expected, expectedDigest, phase, beforeProbe);
   if (String(privateJob.id) !== String(privateJobId) || !RUN_ID.test(String(privateJobId))) fail("CONTINUITY_PRIVATE_JOB");
   const provenance = validatePrivateProvenance({ privateRun, privateJob, artifact, probe: verified, expected, phase });
+  // The v1 probe authenticates only its GitHub artifact provenance. Its provider
+  // identity, raw counts and private approval are still authored inside probe.json.
+  // Production signing therefore remains impossible until a separately reviewed
+  // reader proves those facts independently. This flag is intentionally absent
+  // from the CLI and workflow and exists only for deterministic schema fixtures.
+  if (codeOnlyTestMode !== true) fail(SOURCE_AUTHENTICATION_BLOCK);
   const evidenceBytes = canonicalBytes(verified.evidence);
   const evidenceIssuedAt = Math.floor(Date.parse(verified.evidence.issuedAt) / 1000);
   if (phase === "BEFORE" && (now < evidenceIssuedAt - 30 || now - evidenceIssuedAt > 300)) fail("CONTINUITY_BEFORE_STALE");

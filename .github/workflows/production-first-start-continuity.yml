@@ -41,7 +41,7 @@ jobs:
           set +x
           umask 077
           readonly api=https://api.github.com
-          readonly signer_blob=6c638edb92041ef257d6cb0301a7b4fd502ff13d
+          readonly signer_blob=412b9cf2fe7d19740888de1f709df6ce4d110008
           readonly work="$RUNNER_TEMP/production-first-start-continuity"
           cleanup() {
             status=$?

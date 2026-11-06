@@ -16,17 +16,25 @@ No key, secret, environment value, dispatch, signature, or authorization is crea
 
 ## Production first-start signer continuity candidate
 
-`production-first-start-continuity.yml` is a separate code-only candidate. It keeps one
-native-review-protected attempt-1 job alive for both phases. The job authenticates an
-exact private workflow head, job and immutable artifact, revalidates the complete
-direct-provider probe against a protected expected-contract digest, signs BEFORE, then
-waits at most 13 minutes for the nonce-linked AFTER artifact and signs it with the same
-in-memory Ed25519 key. It delivers only detached signatures and hashed provenance to the
-private issue; evidence and expected values are never written to this public repository,
-an artifact, or logs.
+`production-first-start-continuity.yml` is a separate code-only candidate. Its production
+signing entry point is intentionally fail-closed with
+`PROVIDER_ATTESTATION_NOT_AUTHENTICATED`. GitHub run/job/artifact provenance does not
+authenticate provider identity, independently observed Supabase/DNS/Resend facts or the
+caller-authored private approval fields inside `probe.json`. Synthetic envelope tests can
+exercise the schema only through an explicit code-only test flag that the CLI and workflow
+cannot set. Consequently this repository state cannot sign BEFORE or AFTER.
+
+The retained candidate structure still binds one native-review-protected attempt-1
+controller job, exact private workflow head/job/artifact, one in-memory Ed25519 key,
+nonce-linked phases and the 780/900-second timing bounds. Those controls are necessary but
+not sufficient for source authentication.
 
 Activation remains separate. It requires an exact merged controller head, independently
 pinned public-key SPKI digest, the environment-scoped signing key, one least-privilege
 private token limited to Actions read and one issue write, and the protected expected
 contract digest. The private BEFORE and AFTER jobs, real provider identities, dispatch,
 start, transfer, install, promotion, merge and deploy are not enabled by this candidate.
+Before production signing can be reconsidered, a separately reviewed protected reader must
+authenticate scoped provider identities and raw Supabase counts, HFS/run-scoped zero-send
+Resend evidence, DNS readback and GitHub-native private approval provenance independently
+of the uploaded probe. No new proof platform is implied.

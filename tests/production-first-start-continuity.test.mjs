@@ -103,10 +103,10 @@ function fixture(phase = "BEFORE", beforeProbe = null) {
 }
 
 describe("production first-start signer continuity", () => {
-  it("signs BEFORE and AFTER with one exact controller run and authenticated private provenance", () => {
+  it("exercises the CODE_ONLY envelope schema with one exact controller run and private provenance", () => {
     const before = probe("BEFORE");
-    const beforeEnvelope = buildEnvelope(fixture("BEFORE"));
-    const afterEnvelope = buildEnvelope(fixture("AFTER", before));
+    const beforeEnvelope = buildEnvelope({ ...fixture("BEFORE"), codeOnlyTestMode: true });
+    const afterEnvelope = buildEnvelope({ ...fixture("AFTER", before), codeOnlyTestMode: true });
     assert.equal(beforeEnvelope.attestation.phase, "BEFORE");
     assert.equal(afterEnvelope.attestation.beforeEvidenceSha256, sha256(canonicalBytes(before.evidence)));
     assert.match(beforeEnvelope.evidenceSignatureBase64Url, /^[A-Za-z0-9_-]{86}$/);
@@ -124,11 +124,30 @@ describe("production first-start signer continuity", () => {
     ["stale BEFORE", (f) => { f.now += 301; }, "CONTINUITY_BEFORE_STALE"],
   ]) {
     it(`rejects ${name}`, () => {
-      const value = fixture();
+      const value = { ...fixture(), codeOnlyTestMode: true };
       mutate(value);
       assert.throws(() => buildEnvelope(value), new RegExp(code));
     });
   }
+
+  it("refuses a fully self-consistent forged probe despite authentic GitHub-shaped provenance", () => {
+    const value = fixture();
+    value.probe.observation.database.tables.table_00 = "999";
+    value.probe.observation.source.authentication.issuer = "https://attacker.invalid/scoped-reader";
+    value.probe.observation.source.authentication.attestationDigest = sha256(canonicalBytes(providerAttestationPayload(value.probe.observation)));
+    value.probe.evidence = evidence(value.probe.observation, "BEFORE");
+    const withoutDigest = {
+      schema: value.probe.schema,
+      phase: value.probe.phase,
+      sourceIndependenceId: value.probe.sourceIndependenceId,
+      observation: value.probe.observation,
+      evidence: value.probe.evidence,
+    };
+    value.probe.probeDigest = sha256(Buffer.from(JSON.stringify(withoutDigest)));
+    assert.equal(value.probe.observation.run.environmentProtected, true);
+    assert.equal(value.probe.observation.run.approval.decision, "APPROVED");
+    assert.throws(() => buildEnvelope(value), /PROVIDER_ATTESTATION_NOT_AUTHENTICATED/);
+  });
 
   it("rejects replayed AFTER and a wrong protected expected digest", () => {
     const before = probe("BEFORE");

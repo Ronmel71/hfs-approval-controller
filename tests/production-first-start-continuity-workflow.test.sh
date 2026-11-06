@@ -17,6 +17,8 @@ grep -Fq 'deadline=$((SECONDS + 780))' "$workflow" || fail 'AFTER wait is unboun
 grep -Fq 'trap cleanup EXIT HUP INT TERM' "$workflow" || fail 'secret cleanup trap missing'
 grep -Fq 'CONTINUITY_SIGNED phase=${phase}' "$signer" || fail 'bounded signer output missing'
 grep -Fq 'writeFileSync(outputPath' "$signer" || fail 'envelope is not file-only'
+grep -Fq 'PROVIDER_ATTESTATION_NOT_AUTHENTICATED' "$signer" || fail 'unauthenticated provider signing is not fail-closed'
+! grep -Fq 'codeOnlyTestMode' "$workflow" || fail 'workflow can enable synthetic signing mode'
 ! grep -Fq 'uses:' "$workflow" || fail 'external action is forbidden'
 ! grep -Eq 'pull_request|pull_request_target|repository_dispatch|schedule:' "$workflow" || fail 'non-manual trigger present'
 ! grep -Eq 'console\.log|process\.stdout\.write\(`\$\{JSON\.stringify\(envelope\)' "$signer" || fail 'envelope could be logged'
