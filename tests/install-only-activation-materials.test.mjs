@@ -190,6 +190,9 @@ test("workflow remains manual, protected, SHA-pinned, and literal-disabled", () 
   assert.match(workflow, /publish-materials:\n    if: \$\{\{ false \}\}/);
   assert.match(workflow, /GITHUB_RUN_ATTEMPT" == 1/);
   assert.match(workflow, /actions\/runs\/\$GITHUB_RUN_ID\/approvals/);
+  assert.match(workflow, /publish-materials:\n    if: \$\{\{ false \}\}[^\n]*\n[\s\S]*?    permissions:\n      actions: read\n      contents: read/);
+  assert.equal((workflow.match(/\n      actions: read\n/g) ?? []).length, 1);
+  assert.doesNotMatch(workflow, /\n\s+actions: write/);
   assert.match(workflow, /actions\/checkout@[0-9a-f]{40}/);
   assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
   assert.doesNotMatch(workflow, /pull_request:|pull_request_target:|repository_dispatch:|schedule:/);
