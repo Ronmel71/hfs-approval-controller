@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   publish-materials:
-    if: ${{ false }} # HARD DISABLED: separate reviewed activation must provision the protected key and minimum private reader.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 }} # Requires protected environment reviewer before any publication.
     runs-on: ubuntu-24.04
     environment: production-first-start
     timeout-minutes: 10
