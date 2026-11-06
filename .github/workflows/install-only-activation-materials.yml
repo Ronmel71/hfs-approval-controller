@@ -23,6 +23,7 @@ jobs:
     environment: production-first-start
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: read
     steps:
       - name: Check out exact reviewed controller head
