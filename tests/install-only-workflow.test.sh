@@ -42,4 +42,24 @@ grep -Fq "printf 'STAGE_ONLY_REVIEW_APPROVED\\n'" "$stage_workflow" || fail 'sta
 ! grep -Eq 'Ronmel71/hfs-selger-app|hfs-selger-app-prod|62\.238\.|/opt/|Supabase|Resend|[0-9a-f]{40}' "$stage_workflow" || fail 'private data or pinned private identity in public stage workflow'
 [[ "$(grep -c '^      - name:' "$stage_workflow")" == 1 ]] || fail 'stage-only workflow must have one harmless step'
 
+# The read-only credential preflight must remain a manual, environment-protected
+# verifier. A PR cannot execute it or grant production capabilities.
+preflight=.github/workflows/protected-credential-preflight.yml
+grep -Fxq '  workflow_dispatch:' "$preflight" || fail 'credential preflight must be manual-only'
+[[ "$(grep -Fc 'permissions: {}' "$preflight")" == 2 ]] || fail 'credential preflight must have zero GITHUB_TOKEN permissions'
+grep -Fq "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1" "$preflight" || fail 'credential preflight exact main/attempt guard missing'
+grep -Fxq '    environment: production-first-start' "$preflight" || fail 'credential preflight protected environment missing'
+grep -Fq 'HFS_ED25519_SIGNING_KEY_PEM: ${{ secrets.HFS_ED25519_SIGNING_KEY_PEM }}' "$preflight" || fail 'credential preflight Ed25519 environment binding missing'
+grep -Fq 'HFS_PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.HFS_PRIVATE_SOURCE_READ_TOKEN }}' "$preflight" || fail 'credential preflight reader environment binding missing'
+grep -Fq 'privateKey.asymmetricKeyType !== "ed25519"' "$preflight" || fail 'credential preflight Ed25519 verification missing'
+grep -Fq 'method: "GET"' "$preflight" || fail 'credential preflight GET-only request missing'
+grep -Fq 'redirect: "error"' "$preflight" || fail 'credential preflight redirect refusal missing'
+grep -Fq '/repos/Ronmel71/hfs-selger-app' "$preflight" || fail 'credential preflight exact private repository missing'
+grep -Fq '/git/ref/heads/staging' "$preflight" || fail 'credential preflight exact private ref missing'
+grep -Fq 'manifest.json?ref=' "$preflight" || fail 'credential preflight immutable manifest read missing'
+grep -Fq 'manifest.consoleGo !== false || manifest.startAuthorized !== false' "$preflight" || fail 'credential preflight must require no-go source'
+grep -Fq 'CREDENTIAL_PREFLIGHT_PASS SIGNER_VALID PRIVATE_READ_VALID NO_WRITES NO_PUBLISH NO_DEPLOY' "$preflight" || fail 'credential preflight fixed PASS marker missing'
+! grep -Eq 'pull_request:|pull_request_target:|repository_dispatch:|schedule:|^[[:space:]]*push:' "$preflight" || fail 'credential preflight non-manual event forbidden'
+! grep -Eq 'uses:|actions/upload-artifact|docker |[^A-Z]POST[^A-Z]|[^A-Z]PUT[^A-Z]|[^A-Z]PATCH[^A-Z]|[^A-Z]DELETE[^A-Z]|set -x|curl ' "$preflight" || fail 'credential preflight write, external action or shell trace forbidden'
+
 printf 'install-only-workflow.test: PASS\n'
