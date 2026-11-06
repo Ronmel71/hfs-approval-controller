@@ -1,0 +1,141 @@
+name: Production first-start signer continuity
+run-name: First-start signer continuity · artifact ${{ inputs.before_artifact_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      before_artifact_id:
+        description: Opaque BEFORE artifact ID from the private attempt-1 run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-first-start-signer-continuity
+  cancel-in-progress: false
+
+jobs:
+  sign-both-phases:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    environment: production-first-start
+    timeout-minutes: 20
+    steps:
+      - name: Authenticate and sign attempt-1 BEFORE then AFTER
+        env:
+          CONTROLLER_TOKEN: ${{ github.token }}
+          PRIVATE_TOKEN: ${{ secrets.HFS_PRIVATE_READBACK_TOKEN }}
+          HFS_PRIVATE_REPOSITORY: ${{ secrets.HFS_PRIVATE_REPOSITORY }}
+          HFS_PRIVATE_WORKFLOW_PATH: ${{ secrets.HFS_FIRST_START_WORKFLOW_PATH }}
+          HFS_PRIVATE_WORKFLOW_BRANCH: ${{ secrets.HFS_FIRST_START_WORKFLOW_BRANCH }}
+          HFS_PRIVATE_JOB_NAME: ${{ secrets.HFS_FIRST_START_JOB_NAME }}
+          HFS_PRIVATE_DELIVERY_ISSUE: ${{ secrets.HFS_PRIVATE_AUTHORIZATION_ISSUE }}
+          HFS_FIRST_START_EXPECTED_SHA256: ${{ secrets.HFS_FIRST_START_EXPECTED_SHA256 }}
+          HFS_ED25519_SIGNING_KEY_PEM: ${{ secrets.HFS_ED25519_SIGNING_KEY_PEM }}
+          BEFORE_ARTIFACT_ID: ${{ inputs.before_artifact_id }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          readonly api=https://api.github.com
+          readonly signer_blob=6c638edb92041ef257d6cb0301a7b4fd502ff13d
+          readonly work="$RUNNER_TEMP/production-first-start-continuity"
+          cleanup() {
+            status=$?
+            trap - EXIT HUP INT TERM
+            if [[ -d "$work" && ! -L "$work" ]]; then
+              find "$work" -type f -exec shred -u -- {} + >/dev/null 2>&1 || true
+              rm -rf -- "$work"
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT HUP INT TERM
+
+          [[ "$GITHUB_REPOSITORY" == Ronmel71/hfs-approval-controller ]]
+          [[ "$GITHUB_REF" == refs/heads/main && "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+          [[ "$GITHUB_RUN_ATTEMPT" == 1 && "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]{5,19}$ && "$BEFORE_ARTIFACT_ID" =~ ^[1-9][0-9]{5,19}$ ]]
+          [[ "$HFS_PRIVATE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$HFS_PRIVATE_WORKFLOW_PATH" =~ ^\.github/workflows/[a-z0-9][a-z0-9._-]*\.ya?ml$ ]]
+          [[ "$HFS_PRIVATE_WORKFLOW_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]]
+          [[ "$HFS_PRIVATE_DELIVERY_ISSUE" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$HFS_FIRST_START_EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ -n "$PRIVATE_TOKEN" && -n "$HFS_ED25519_SIGNING_KEY_PEM" ]]
+          mkdir -m 0700 -- "$work"
+
+          controller_headers=(-H "Accept: application/vnd.github+json" -H "Authorization: Bearer $CONTROLLER_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28")
+          private_headers=(-H "Accept: application/vnd.github+json" -H "Authorization: Bearer $PRIVATE_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28")
+
+          curl --fail --silent --show-error --location "${controller_headers[@]}" \
+            "$api/repos/$GITHUB_REPOSITORY/contents/scripts/production-first-start-continuity.mjs?ref=$GITHUB_SHA" > "$work/signer-source.json"
+          [[ "$(jq -r .sha "$work/signer-source.json")" == "$signer_blob" ]]
+          jq -r .content "$work/signer-source.json" | base64 --decode > "$work/signer.mjs"
+          [[ "$(git hash-object "$work/signer.mjs")" == "$signer_blob" ]]
+
+          curl --fail --silent --show-error --location "${controller_headers[@]}" "$api/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$work/controller-run.json"
+          curl --fail --silent --show-error --location "${controller_headers[@]}" "$api/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" > "$work/controller-approvals.json"
+
+          fetch_artifact() {
+            local phase=$1 artifact_id=$2 destination=$3 metadata=$4 members artifact_bytes
+            curl --fail --silent --show-error --location "${private_headers[@]}" "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/artifacts/$artifact_id" > "$metadata"
+            artifact_bytes=$(jq -r .size_in_bytes "$metadata")
+            [[ "$artifact_bytes" =~ ^[1-9][0-9]{0,5}$ && "$artifact_bytes" -le 262144 ]]
+            curl --fail --silent --show-error --location "${private_headers[@]}" "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$destination"
+            [[ "$(wc -c < "$destination")" -le 262144 ]]
+            members=$(unzip -Z1 "$destination" | LC_ALL=C sort)
+            [[ "$members" == $'expected.json\nprobe.json' ]]
+            unzip -p "$destination" probe.json > "$work/$phase-probe.json"
+            unzip -p "$destination" expected.json > "$work/$phase-expected.json"
+            [[ "$(jq -r .phase "$work/$phase-probe.json")" == "$phase" ]]
+          }
+
+          fetch_artifact BEFORE "$BEFORE_ARTIFACT_ID" "$work/before.zip" "$work/before-artifact.json"
+          private_run_id=$(jq -r .workflow_run.id "$work/before-artifact.json")
+          [[ "$private_run_id" =~ ^[1-9][0-9]{5,19}$ ]]
+          curl --fail --silent --show-error --location "${private_headers[@]}" "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/runs/$private_run_id" > "$work/private-run.json"
+          [[ "$(jq -r .path "$work/private-run.json")" == "$HFS_PRIVATE_WORKFLOW_PATH" ]]
+          [[ "$(jq -r .head_branch "$work/private-run.json")" == "$HFS_PRIVATE_WORKFLOW_BRANCH" ]]
+          private_head=$(jq -r .head_sha "$work/private-run.json")
+          curl --fail --silent --show-error --location "${private_headers[@]}" "$api/repos/$HFS_PRIVATE_REPOSITORY/git/ref/heads/$HFS_PRIVATE_WORKFLOW_BRANCH" > "$work/private-ref.json"
+          [[ "$(jq -r .object.sha "$work/private-ref.json")" == "$private_head" ]]
+          curl --fail --silent --show-error --location "${private_headers[@]}" "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/runs/$private_run_id/jobs?filter=latest&per_page=100" > "$work/private-jobs.json"
+          private_job_id=$(jq -r --arg name "$HFS_PRIVATE_JOB_NAME" '[.jobs[] | select(.name == $name and (.status == "in_progress" or (.status == "completed" and .conclusion == "success")))] | if length == 1 then .[0].id else empty end' "$work/private-jobs.json")
+          [[ "$private_job_id" =~ ^[1-9][0-9]{5,19}$ ]]
+          jq -r --arg name "$HFS_PRIVATE_JOB_NAME" '.jobs[] | select(.name == $name)' "$work/private-jobs.json" > "$work/private-job.json"
+          printf '%s\n' "$private_job_id" > "$work/private-job-id"
+
+          node "$work/signer.mjs" sign BEFORE "$work/BEFORE-probe.json" "$work/BEFORE-expected.json" - \
+            "$work/controller-run.json" "$work/controller-approvals.json" "$work/private-run.json" "$work/private-job.json" \
+            "$work/before-artifact.json" "$work/private-job-id" "$work/before-envelope.json"
+          jq -e '.schema == "hfs.production-first-start.continuity-envelope/v1" and .attestation.phase == "BEFORE"' "$work/before-envelope.json" >/dev/null
+          jq -n --rawfile envelope "$work/before-envelope.json" '{body:("PRODUCTION_FIRST_START_BEFORE_SIGNATURE\n\n```json\n" + $envelope + "```\n")}' > "$work/before-comment.json"
+          curl --fail --silent --show-error --location "${private_headers[@]}" --request POST --data-binary @"$work/before-comment.json" \
+            "$api/repos/$HFS_PRIVATE_REPOSITORY/issues/$HFS_PRIVATE_DELIVERY_ISSUE/comments" > "$work/before-comment-response.json"
+          jq -e '.id | numbers' "$work/before-comment-response.json" >/dev/null
+          printf 'BEFORE_SIGNATURE_DELIVERED\n'
+
+          before_nonce=$(jq -r .evidence.nonce "$work/BEFORE-probe.json")
+          [[ "$before_nonce" =~ ^[0-9a-f]{64}$ ]]
+          after_name="production-first-start-after-$before_nonce"
+          after_artifact_id=
+          deadline=$((SECONDS + 780))
+          while (( SECONDS < deadline )); do
+            curl --fail --silent --show-error --location "${private_headers[@]}" "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/runs/$private_run_id/artifacts?per_page=100" > "$work/private-artifacts.json"
+            after_artifact_id=$(jq -r --arg name "$after_name" '[.artifacts[] | select(.name == $name and .expired == false)] | if length == 1 then .[0].id else empty end' "$work/private-artifacts.json")
+            [[ -z "$after_artifact_id" ]] || break
+            sleep 10
+          done
+          [[ "$after_artifact_id" =~ ^[1-9][0-9]{5,19}$ ]]
+          fetch_artifact AFTER "$after_artifact_id" "$work/after.zip" "$work/after-artifact.json"
+          node "$work/signer.mjs" sign AFTER "$work/AFTER-probe.json" "$work/AFTER-expected.json" "$work/BEFORE-probe.json" \
+            "$work/controller-run.json" "$work/controller-approvals.json" "$work/private-run.json" "$work/private-job.json" \
+            "$work/after-artifact.json" "$work/private-job-id" "$work/after-envelope.json"
+          jq -e '.schema == "hfs.production-first-start.continuity-envelope/v1" and .attestation.phase == "AFTER"' "$work/after-envelope.json" >/dev/null
+          jq -n --rawfile envelope "$work/after-envelope.json" '{body:("PRODUCTION_FIRST_START_AFTER_SIGNATURE\n\n```json\n" + $envelope + "```\n")}' > "$work/after-comment.json"
+          curl --fail --silent --show-error --location "${private_headers[@]}" --request POST --data-binary @"$work/after-comment.json" \
+            "$api/repos/$HFS_PRIVATE_REPOSITORY/issues/$HFS_PRIVATE_DELIVERY_ISSUE/comments" > "$work/after-comment-response.json"
+          jq -e '.id | numbers' "$work/after-comment-response.json" >/dev/null
+          printf 'AFTER_SIGNATURE_DELIVERED\n'
