@@ -1,6 +1,14 @@
 # HFS approval controller
 
-This public repository contains only the minimal native-review control plane. It does not contain application source, host details, provider data, private release contents, or signing keys.
+This public repository contains only the minimal native-review control plane. It does not contain application source, provider records, private release contents, or signing keys. The dormant install-only material candidate contains only the operational identifiers that its five-file public contract already classifies as nonsecret.
+
+## Dormant install-only activation materials candidate
+
+`install-only-activation-materials.yml` is manual-only and its sole `publish-materials` job is literal-disabled with `if: ${{ false }}`. It cannot publish from this repository state. A future, separately reviewed activation would have to pin the merged controller head, retain the native `production-first-start` review, provision one environment-scoped Ed25519 private key, and provision one fine-grained private-repository token restricted to read-only contents. The token is used only to prove that the requested full 40-hex source is the current private `staging` head and to read the exact policy manifest at that immutable commit. Neither credential is provisioned here.
+
+The candidate derives only the public SPKI PEM in memory and writes exactly five files. It never writes, prints, uploads, or passes private PEM bytes as an argument. The one-hour random nonce is an artifact identifier and single-use approval binding, not an authentication secret: the private consumer additionally requires exact protected controller run/approval provenance, immutable source and controller heads, artifact digest, expiry, and an unconsumed root-owned host state. The host label, WireGuard peer address, public DNS name, and public A record reveal limited topology but no credential, customer record, or access path. Before any later activation, review that classification again. If the nonce or topology is then classified as sensitive, do not enable this public upload; use the already connected private GitHub artifact retrieval path with the same provenance checks instead.
+
+The fixed `database_table_count=44` trust field is schema compatibility only. This install-only candidate performs no production database, DNS, email, host, or provider readback and grants no start authority.
 
 `install-only-authorization.yml` is a code-only candidate. A future, separately approved activation must:
 
