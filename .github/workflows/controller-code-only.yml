@@ -1,0 +1,20 @@
+name: Controller code-only checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out unprivileged review head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Test signer contract
+        run: node --test tests/install-only-authorization.test.mjs
+      - name: Test inert workflow contract
+        run: bash tests/install-only-workflow.test.sh
