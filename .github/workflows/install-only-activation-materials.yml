@@ -1,0 +1,95 @@
+name: Install-only activation materials
+run-name: Install-only activation materials · ${{ inputs.source_commit }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact full 40-hex private staging commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-only-activation-materials
+  cancel-in-progress: false
+
+jobs:
+  publish-materials:
+    if: ${{ false }} # HARD DISABLED: separate reviewed activation must provision the protected key and minimum private reader.
+    runs-on: ubuntu-24.04
+    environment: production-first-start
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact reviewed controller head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authenticate controller review and exact private source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HFS_PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.HFS_PRIVATE_SOURCE_READ_TOKEN }}
+          HFS_ED25519_SIGNING_KEY_PEM: ${{ secrets.HFS_ED25519_SIGNING_KEY_PEM }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          readonly work="$RUNNER_TEMP/install-only-activation-materials-work"
+          readonly output="$RUNNER_TEMP/install-only-activation-materials-output"
+          cleanup() {
+            status=$?
+            trap - EXIT HUP INT TERM
+            if [[ -d "$work" && ! -L "$work" ]]; then
+              find "$work" -type f -exec shred -u -- {} + >/dev/null 2>&1 || true
+              rm -rf -- "$work"
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT HUP INT TERM
+
+          [[ "$GITHUB_REPOSITORY" == Ronmel71/hfs-approval-controller ]]
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$GITHUB_RUN_ATTEMPT" == 1 && "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]{5,19}$ && "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ -n "$HFS_PRIVATE_SOURCE_READ_TOKEN" && -n "$HFS_ED25519_SIGNING_KEY_PEM" ]]
+          [[ -z "$(git status --porcelain --untracked-files=all)" ]]
+          mkdir -m 0700 -- "$work"
+
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha > "$work/controller-head"
+          [[ "$(<"$work/controller-head")" == "$GITHUB_SHA" ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$work/controller-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" > "$work/controller-approvals.json"
+
+          GH_TOKEN="$HFS_PRIVATE_SOURCE_READ_TOKEN" gh api \
+            repos/Ronmel71/hfs-selger-app/git/ref/heads/staging --jq .object.sha > "$work/private-head"
+          [[ "$(<"$work/private-head")" == "$SOURCE_COMMIT" ]]
+          GH_TOKEN="$HFS_PRIVATE_SOURCE_READ_TOKEN" gh api \
+            "repos/Ronmel71/hfs-selger-app/contents/deploy/production/install-only-bundle/manifest.json?ref=$SOURCE_COMMIT" \
+            --jq .content | base64 --decode > "$work/policy.json"
+
+          node scripts/install-only-activation-materials.mjs \
+            --source-commit "$SOURCE_COMMIT" \
+            --authenticated-private-ref "$(<"$work/private-head")" \
+            --policy "$work/policy.json" \
+            --controller-head "$GITHUB_SHA" \
+            --reviewed-controller-head "$(<"$work/controller-head")" \
+            --output "$output" \
+            --controller-run "$work/controller-run.json" \
+            --controller-approvals "$work/controller-approvals.json" \
+            --controller-run-id "$GITHUB_RUN_ID"
+          [[ "$(find "$output" -type f -printf '%P\n' | LC_ALL=C sort)" == $'activation-material-handoff.json\nhfs-production-first-start-sudoers\nproduction-first-start-evidence-v2.pub\nproduction-first-start-install-v2.approval\nproduction-first-start-v2.trust' ]]
+      - name: Publish exactly five declared nonsecret files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: install-only-activation-materials-${{ inputs.source_commit }}
+          path: ${{ runner.temp }}/install-only-activation-materials-output/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: false
