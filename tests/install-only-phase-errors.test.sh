@@ -10,6 +10,7 @@ fail() {
 
 grep -Fq 'trap report_error ERR' "$workflow" || fail 'ERR trap missing'
 grep -Fq "printf 'INSTALL_ONLY_AUTHORIZATION_ERROR phase=%s exit=%d\\n'" "$workflow" || fail 'stable error marker missing'
+grep -Fq "printf 'INSTALL_ONLY_AUTHORIZATION_ERROR phase=%s exit=%d code=%s\\n'" "$workflow" || fail 'stable signer refusal marker missing'
 grep -Fq 'exec 3>&2' "$workflow" || fail 'protected diagnostic descriptor missing'
 grep -Fq 'quiet_capture private_run_id jq' "$workflow" || fail 'single-report capture wrapper missing'
 ! grep -Fq 'set -x' "$workflow" || fail 'shell tracing is forbidden'
