@@ -7,6 +7,7 @@
 - Before issuance the workflow fully paginates repository-wide `workflow_dispatch` inventory. The signer rejects incomplete pagination, omission of the current run, reruns and any duplicate canonical request/artifact/nonce run, including a matching run on another workflow or branch.
 - Signer and consumer share one maximum lifetime: expiry must be later than issuance and no more than 3,600 seconds after it. Audit purpose, wrong request ID, changed artifact/nonce, expired or 24-hour approvals and bad signatures fail closed.
 - No workflow was dispatched or rerun; no protected review, secret, environment, artifact, host, install, start, merge or deploy state was changed. Work/Codex usage: 0 calls.
+- Controller PR #8 contains implementation commit `e2ff2445cb4b21dd2f4af0f0b5aa9f242ea0d3ec`. All 36 Node tests, both shell workflow contracts, YAML parsing, signer-blob pin readback and diff checks pass; implementation-head controller code-only CI is green.
 
 ### Next gate
 
