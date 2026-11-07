@@ -1,5 +1,17 @@
 # Current status
 
+## 2026-11-08 — issue #321 signer basename and safe refusal diagnostics
+
+- Branch `fix/issue-321-signer-basename` is based on verified controller `main` commit `adb53fdab348c52d545bc424857774cac1f0e002`. The authorization workflow now writes the pinned signer bytes to the required basename `install-only-authorization.mjs` and uses that exact file for both `git hash-object` verification and the Node CLI call.
+- Signer stderr is captured only in a mode-0600 file under the existing mode-0700 work directory. An exact single-line `AUTHORIZATION_REFUSED code=AUTH_[A-Z0-9_]+` with signer exit 78 is reduced through an explicit stable-code allowlist; all other exit-78 text becomes `AUTH_UNKNOWN`. Raw stderr is never printed or consumed by command substitution or a trap. Non-CLI failures retain only the existing public phase and numeric exit marker.
+- Offline regression coverage reproduces the historical wrong-basename behavior (empty stdout and jq schema exit 4), proves the corrected downloaded basename activates the CLI and returns exit 78 with `AUTH_USAGE`, and rejects empty, arbitrary, unallowlisted and multiline/malicious stderr without leakage. The source signer and signing protocol are unchanged.
+- Local verification passes: 36/36 Node tests, five workflow/security contract commands, shell syntax and diff checks, plus YAML parsing for all seven workflows. The minimal local host has no jq binary, so the new test uses its strict empty-input fallback locally; GitHub's Ubuntu PR runner executes the same case with real jq. Controller PR #11 is open, and its exact-head `Controller code-only checks / validate` gate passes.
+- No workflow was dispatched, rerun or retried; no signature, authorization, issue #288 write, secret, token, environment, artifact, host, install, start, merge, deploy or production data was changed. `installAuthorized=false`, `startAuthorized=false`. Work/Codex usage: 0 calls.
+
+### Next gate
+
+Review controller PR #11. Do not merge or dispatch from this task; any later authorization remains a separate exact-SHA approval.
+
 ## 2026-11-07 — issue #317 safe INSTALL_ONLY phase diagnostics
 
 - Controller PR #10 on `fix/issue-317-phase-errors` adds one fail-closed `ERR` contract to `install-only-authorization.yml`. The only failure marker is `INSTALL_ONLY_AUTHORIZATION_ERROR phase=<PUBLIC_PHASE_ID> exit=<NUMERIC_STATUS>`; tool stderr is suppressed so URLs, paths, response bodies, request values, nonces, tokens and signed-envelope content are not logged.
