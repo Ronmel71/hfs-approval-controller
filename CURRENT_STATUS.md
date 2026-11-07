@@ -6,6 +6,7 @@
 - The private token can perform only three fixed GETs: exact private repository metadata, active workflow ID `379993056` at `.github/workflows/first-start-runner-transfer.yml`, and open private issue `288`. The controller token has only `actions: read` and performs only the current run and approval GETs.
 - The verifier binds `main`, attempt 1, the current run head, exact reviewer `Ronmel71` / `321374159`, and environment `production-first-start` / `26423058762`. Redirects, timeout/transport errors, invalid JSON, HTTP failures, target drift, and approval drift fail closed with stable non-sensitive codes.
 - The workflow does not expose or use `HFS_PRIVATE_SOURCE_READ_TOKEN` or `HFS_ED25519_SIGNING_KEY_PEM`; it has no signing, write, OIDC, deploy, checkout, cache, output, or artifact path. Synthetic exact-code tests cover PASS and negative HTTP, transport, JSON, repository, workflow, issue, head, reviewer, environment, admin-bypass, attempt, missing-token, and configuration cases.
+- Controller PR #9 is open for review. The full local controller suite, workflow YAML parsing, diff checks, unchanged installation/deploy guard comparison, and exact-head code-only PR CI are green; local `actionlint` is unavailable and is not claimed.
 - No workflow was dispatched or rerun; no protected review, secret value, token, environment, issue #288, artifact, host, install, start, merge, or deploy state was changed. `installAuthorized=false`, `startAuthorized=false`. Work/Codex usage: 0 calls.
 
 ### Next gate
