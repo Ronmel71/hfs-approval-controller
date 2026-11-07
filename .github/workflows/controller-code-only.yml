@@ -20,3 +20,4 @@ jobs:
         run: |
           bash tests/install-only-workflow.test.sh
           bash tests/production-first-start-continuity-workflow.test.sh
+          node tests/protected-credential-preflight.test.mjs

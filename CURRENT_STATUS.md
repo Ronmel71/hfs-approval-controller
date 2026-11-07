@@ -1,5 +1,18 @@
 # Current status
 
+## 2026-11-07 — issue #293 isolated readback credential preflight
+
+- Branch `feat/issue-293-readback-preflight` updates the existing protected credential preflight, its code-only PR test path, offline tests, and documentation. It replaces the old source-reader/signing challenge with an isolated `HFS_PRIVATE_READBACK_TOKEN` read-only verifier.
+- The private token can perform only three fixed GETs: exact private repository metadata, active workflow ID `379993056` at `.github/workflows/first-start-runner-transfer.yml`, and open private issue `288`. The controller token has only `actions: read` and performs only the current run and approval GETs.
+- The verifier binds `main`, attempt 1, the current run head, exact reviewer `Ronmel71` / `321374159`, and environment `production-first-start` / `26423058762`. Redirects, timeout/transport errors, invalid JSON, HTTP failures, target drift, and approval drift fail closed with stable non-sensitive codes.
+- The workflow does not expose or use `HFS_PRIVATE_SOURCE_READ_TOKEN` or `HFS_ED25519_SIGNING_KEY_PEM`; it has no signing, write, OIDC, deploy, checkout, cache, output, or artifact path. Synthetic exact-code tests cover PASS and negative HTTP, transport, JSON, repository, workflow, issue, head, reviewer, environment, admin-bypass, attempt, missing-token, and configuration cases.
+- Controller PR #9 is open for review. The full local controller suite, workflow YAML parsing, diff checks, unchanged installation/deploy guard comparison, and exact-head code-only PR CI are green; local `actionlint` is unavailable and is not claimed.
+- No workflow was dispatched or rerun; no protected review, secret value, token, environment, issue #288, artifact, host, install, start, merge, or deploy state was changed. `installAuthorized=false`, `startAuthorized=false`. Work/Codex usage: 0 calls.
+
+### Next gate
+
+Review the single controller code PR. A later preflight dispatch requires a separate explicit approval bound to the exact merged controller SHA; this code change grants no production authority.
+
 ## 2026-11-07 — issue #281 install-only authorization hardening
 
 - Branch `fix/issue-281-install-authorization-hardening` keeps the controller code-only and fail-closed while adding explicit `purpose=INSTALL_ONLY`, a canonical SHA-256 request ID, and exact workflow inputs for request ID, readback artifact ID and nonce.
