@@ -22,6 +22,10 @@ grep -Fq '/actions/runs/$GITHUB_RUN_ID/approvals' "$workflow" || fail 'authentic
 grep -Fq 'actions/runs?event=workflow_dispatch&per_page=100&page=$page' "$workflow" || fail 'paginated repository dispatch inventory missing'
 grep -Fq 'install-only-run-inventory/v1' "$workflow" || fail 'complete inventory contract missing'
 grep -Fq '/actions/jobs/$private_job_id' "$workflow" || fail 'private readback job provenance missing'
+grep -Fq 'trap report_error ERR' "$workflow" || fail 'phase error trap missing'
+grep -Fq "printf 'INSTALL_ONLY_AUTHORIZATION_ERROR phase=%s exit=%d\\n'" "$workflow" || fail 'stable phase error marker missing'
+grep -Fq 'phase=NATIVE_APPROVAL' "$workflow" || fail 'native approval phase missing'
+grep -Fq 'phase=ISSUE_DELIVERY' "$workflow" || fail 'issue delivery phase missing'
 grep -Fq 'install-only-readback-${request.authorizationNonce}' "$signer" || fail 'nonce-named artifact binding missing'
 grep -Fq 'artifactDigestSha256' "$signer" || fail 'artifact digest binding missing'
 grep -Fq 'controllerHeadSha' "$signer" || fail 'controller head binding missing'
@@ -30,6 +34,7 @@ grep -Fq 'AUTH_DUPLICATE_RUN' "$signer" || fail 'duplicate dispatch refusal miss
 grep -Fq 'request.expiresAtEpoch > now + 3600' "$signer" || fail '60-minute signer maximum missing'
 ! grep -Fq 'request.expiresAtEpoch > now + 86400' "$signer" || fail 'legacy 24-hour signer maximum remains'
 ! grep -Fq 'uses:' "$workflow" || fail 'external action is forbidden'
+! grep -Fq 'set -x' "$workflow" || fail 'shell tracing is forbidden'
 ! grep -Eq 'pull_request|pull_request_target|repository_dispatch' "$workflow" || fail 'non-manual trigger present'
 ! grep -Eq 'Ronmel71/hfs-selger-app|hfs-selger-app-prod|62\.238\.|/opt/|Supabase|Resend' "$workflow" "$signer" || fail 'private implementation detail in public control code'
 

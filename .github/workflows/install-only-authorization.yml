@@ -59,15 +59,33 @@ jobs:
           readonly api=https://api.github.com
           readonly signer_blob=b4006b25add2f622cf25a06d0cf7adce1d95b72e
           readonly work="$RUNNER_TEMP/install-only-authorization"
+          exec 3>&2
+          phase=PREFLIGHT
+          report_error() {
+            local status=$?
+            trap - ERR
+            printf 'INSTALL_ONLY_AUTHORIZATION_ERROR phase=%s exit=%d\n' "$phase" "$status" >&3
+            exit "$status"
+          }
+          quiet_capture() {
+            local target=$1
+            shift
+            local value=
+            local capture_status=0
+            value=$("$@" 2>/dev/null) || capture_status=$?
+            printf -v "$target" '%s' "$value"
+            return "$capture_status"
+          }
           cleanup() {
-            status=$?
-            trap - EXIT HUP INT TERM
+            local status=$?
+            trap - ERR EXIT HUP INT TERM
             if [[ -d "$work" && ! -L "$work" ]]; then
               find "$work" -type f -exec shred -u -- {} + >/dev/null 2>&1 || true
-              rm -rf -- "$work"
+              rm -rf -- "$work" >/dev/null 2>&1 || true
             fi
             exit "$status"
           }
+          trap report_error ERR
           trap cleanup EXIT HUP INT TERM
 
           [[ "$GITHUB_REPOSITORY" == Ronmel71/hfs-approval-controller ]]
@@ -88,40 +106,55 @@ jobs:
           controller_headers=(-H "Accept: application/vnd.github+json" -H "Authorization: Bearer $CONTROLLER_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28")
           private_headers=(-H "Accept: application/vnd.github+json" -H "Authorization: Bearer $PRIVATE_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28")
 
+          phase=SOURCE_PIN
           curl --fail --silent --show-error --location "${controller_headers[@]}" \
-            "$api/repos/$GITHUB_REPOSITORY/contents/scripts/install-only-authorization.mjs?ref=$GITHUB_SHA" > "$work/signer-source.json"
-          [[ "$(jq -r .sha "$work/signer-source.json")" == "$signer_blob" ]]
-          jq -r .content "$work/signer-source.json" | base64 --decode > "$work/signer.mjs"
-          [[ "$(git hash-object "$work/signer.mjs")" == "$signer_blob" ]]
+            "$api/repos/$GITHUB_REPOSITORY/contents/scripts/install-only-authorization.mjs?ref=$GITHUB_SHA" > "$work/signer-source.json" 2>/dev/null
+          quiet_capture source_blob jq -r .sha "$work/signer-source.json"
+          [[ "$source_blob" == "$signer_blob" ]]
+          jq -r .content "$work/signer-source.json" 2>/dev/null | base64 --decode > "$work/signer.mjs" 2>/dev/null
+          quiet_capture actual_signer_blob git hash-object "$work/signer.mjs"
+          [[ "$actual_signer_blob" == "$signer_blob" ]]
 
+          phase=ARTIFACT_META
           curl --fail --silent --show-error --location "${private_headers[@]}" \
-            "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/artifacts/$READBACK_ARTIFACT_ID" > "$work/artifact.json"
-          private_run_id=$(jq -r .workflow_run.id "$work/artifact.json")
+            "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/artifacts/$READBACK_ARTIFACT_ID" > "$work/artifact.json" 2>/dev/null
+          quiet_capture private_run_id jq -r .workflow_run.id "$work/artifact.json"
           [[ "$private_run_id" =~ ^[1-9][0-9]{5,19}$ ]]
+
+          phase=ARTIFACT_ZIP
           curl --fail --silent --show-error --location "${private_headers[@]}" \
-            "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/artifacts/$READBACK_ARTIFACT_ID/zip" > "$work/readback.zip"
-          members=$(unzip -Z1 "$work/readback.zip" | LC_ALL=C sort)
+            "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/artifacts/$READBACK_ARTIFACT_ID/zip" > "$work/readback.zip" 2>/dev/null
+
+          phase=ZIP_MEMBERS
+          unzip -Z1 "$work/readback.zip" > "$work/members-unsorted.txt" 2>/dev/null
+          LC_ALL=C sort "$work/members-unsorted.txt" > "$work/members.txt" 2>/dev/null
+          quiet_capture members cat "$work/members.txt"
           [[ "$members" == $'authorization-request.json\nstaged-readback.json' ]]
-          unzip -p "$work/readback.zip" authorization-request.json > "$work/request.json"
-          unzip -p "$work/readback.zip" staged-readback.json > "$work/readback.json"
-          private_job_id=$(jq -r .readbackJobId "$work/request.json")
+          unzip -p "$work/readback.zip" authorization-request.json > "$work/request.json" 2>/dev/null
+          unzip -p "$work/readback.zip" staged-readback.json > "$work/readback.json" 2>/dev/null
+
+          phase=REQUEST_PROVENANCE
+          quiet_capture private_job_id jq -r .readbackJobId "$work/request.json"
           [[ "$private_job_id" =~ ^[1-9][0-9]{5,19}$ ]]
 
           curl --fail --silent --show-error --location "${private_headers[@]}" \
-            "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/runs/$private_run_id" > "$work/private-run.json"
+            "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/runs/$private_run_id" > "$work/private-run.json" 2>/dev/null
           curl --fail --silent --show-error --location "${private_headers[@]}" \
-            "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/jobs/$private_job_id" > "$work/private-job.json"
-          curl --fail --silent --show-error --location "${controller_headers[@]}" \
-            "$api/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$work/controller-run.json"
-          curl --fail --silent --show-error --location "${controller_headers[@]}" \
-            "$api/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" > "$work/controller-approvals.json"
+            "$api/repos/$HFS_PRIVATE_REPOSITORY/actions/jobs/$private_job_id" > "$work/private-job.json" 2>/dev/null
 
+          phase=NATIVE_APPROVAL
+          curl --fail --silent --show-error --location "${controller_headers[@]}" \
+            "$api/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$work/controller-run.json" 2>/dev/null
+          curl --fail --silent --show-error --location "${controller_headers[@]}" \
+            "$api/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" > "$work/controller-approvals.json" 2>/dev/null
+
+          phase=INVENTORY
           page=1
           while :; do
             printf -v page_path '%s/inventory-page-%06d.json' "$work" "$page"
             curl --fail --silent --show-error --location "${controller_headers[@]}" \
-              "$api/repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&per_page=100&page=$page" > "$page_path"
-            page_count=$(jq -er '.workflow_runs | length' "$page_path")
+              "$api/repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&per_page=100&page=$page" > "$page_path" 2>/dev/null
+            quiet_capture page_count jq -er '.workflow_runs | length' "$page_path"
             [[ "$page_count" =~ ^[0-9]+$ && "$page_count" -le 100 ]]
             if [[ "$page_count" -lt 100 ]]; then
               break
@@ -130,16 +163,19 @@ jobs:
           done
           jq -s --arg repository "$GITHUB_REPOSITORY" \
             '{schema:"hfs.production-first-start.install-only-run-inventory/v1",complete:true,query:{repository:$repository,event:"workflow_dispatch",perPage:100},pages:.}' \
-            "$work"/inventory-page-*.json > "$work/controller-run-inventory.json"
+            "$work"/inventory-page-*.json > "$work/controller-run-inventory.json" 2>/dev/null
 
+          phase=SIGNER
           node "$work/signer.mjs" sign \
             "$work/request.json" "$work/readback.json" "$work/controller-run.json" "$work/controller-approvals.json" \
-            "$work/controller-run-inventory.json" "$work/private-run.json" "$work/private-job.json" "$work/artifact.json" > "$work/authorization.json"
-          jq -e '.schema == "hfs.production-first-start.github-install-authorization-envelope/v1"' "$work/authorization.json" >/dev/null
+            "$work/controller-run-inventory.json" "$work/private-run.json" "$work/private-job.json" "$work/artifact.json" > "$work/authorization.json" 2>/dev/null
+          jq -e '.schema == "hfs.production-first-start.github-install-authorization-envelope/v1"' "$work/authorization.json" >/dev/null 2>&1
           jq -n --rawfile authorization "$work/authorization.json" \
-            '{body:("INSTALL_ONLY_AUTHORIZATION\n\n```json\n" + $authorization + "```\n")}' > "$work/comment.json"
+            '{body:("INSTALL_ONLY_AUTHORIZATION\n\n```json\n" + $authorization + "```\n")}' > "$work/comment.json" 2>/dev/null
+
+          phase=ISSUE_DELIVERY
           curl --fail --silent --show-error --location "${private_headers[@]}" \
             --request POST --data-binary @"$work/comment.json" \
-            "$api/repos/$HFS_PRIVATE_REPOSITORY/issues/$HFS_PRIVATE_AUTHORIZATION_ISSUE/comments" > "$work/comment-response.json"
-          jq -e '.id | numbers' "$work/comment-response.json" >/dev/null
+            "$api/repos/$HFS_PRIVATE_REPOSITORY/issues/$HFS_PRIVATE_AUTHORIZATION_ISSUE/comments" > "$work/comment-response.json" 2>/dev/null
+          jq -e '.id | numbers' "$work/comment-response.json" >/dev/null 2>&1
           printf 'INSTALL_ONLY_AUTHORIZATION_DELIVERED\n'
