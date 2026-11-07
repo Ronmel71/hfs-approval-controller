@@ -2,6 +2,14 @@
 
 This public repository contains only the minimal native-review control plane. It does not contain application source, provider records, private release contents, or signing keys. The dormant install-only material candidate contains only the operational identifiers that its five-file public contract already classifies as nonsecret.
 
+## Protected readback credential preflight
+
+`protected-credential-preflight.yml` is a manual, native-review-protected read-only preflight. It is code-only until a later, explicit approval authorizes one exact merged controller SHA for dispatch. The preflight grants no install or start authority and never signs, publishes, delivers an envelope, creates an artifact, or writes to an issue.
+
+The isolated check exposes only `HFS_PRIVATE_READBACK_TOKEN` and the five existing nonsecret configuration names to its process. It uses that private token for exactly three GET requests: the exact private repository, workflow ID `379993056`, and open issue `288`. Its controller `GITHUB_TOKEN` has only `actions: read` and is used only to GET the current workflow run and its native environment approvals. The verifier binds attempt 1, the current `main` run head, reviewer `Ronmel71` (ID `321374159`), and environment `production-first-start` (ID `26423058762`).
+
+Requests use fixed timeouts and reject redirects. Failures emit only stable non-sensitive codes; response bodies, request headers, environment values, and tokens are never printed. The workflow does not use `HFS_PRIVATE_SOURCE_READ_TOKEN` or `HFS_ED25519_SIGNING_KEY_PEM`. Reviewing or merging this code does not authorize a dispatch: any future functional credential test requires a new SHA-bound explicit approval.
+
 ## Dormant install-only activation materials candidate
 
 `install-only-activation-materials.yml` is manual-only and its sole `publish-materials` job is literal-disabled with `if: ${{ false }}`. It cannot publish from this repository state. A future, separately reviewed activation would have to pin the merged controller head, retain the native `production-first-start` review, provision one environment-scoped Ed25519 private key, and provision one fine-grained private-repository token restricted to read-only contents. The token is used only to prove that the requested full 40-hex source is the current private `staging` head and to read the exact policy manifest at that immutable commit. Neither credential is provisioned here.

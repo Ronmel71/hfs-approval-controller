@@ -56,20 +56,23 @@ grep -Fq "printf 'STAGE_ONLY_REVIEW_APPROVED\\n'" "$stage_workflow" || fail 'sta
 # verifier. A PR cannot execute it or grant production capabilities.
 preflight=.github/workflows/protected-credential-preflight.yml
 grep -Fxq '  workflow_dispatch:' "$preflight" || fail 'credential preflight must be manual-only'
-[[ "$(grep -Fc 'permissions: {}' "$preflight")" == 2 ]] || fail 'credential preflight must have zero GITHUB_TOKEN permissions'
+[[ "$(grep -Fc '  actions: read' "$preflight")" == 2 ]] || fail 'credential preflight must have only actions-read GITHUB_TOKEN permission'
 grep -Fq "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1" "$preflight" || fail 'credential preflight exact main/attempt guard missing'
 grep -Fxq '    environment: production-first-start' "$preflight" || fail 'credential preflight protected environment missing'
-grep -Fq 'HFS_ED25519_SIGNING_KEY_PEM: ${{ secrets.HFS_ED25519_SIGNING_KEY_PEM }}' "$preflight" || fail 'credential preflight Ed25519 environment binding missing'
-grep -Fq 'HFS_PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.HFS_PRIVATE_SOURCE_READ_TOKEN }}' "$preflight" || fail 'credential preflight reader environment binding missing'
-grep -Fq 'privateKey.asymmetricKeyType !== "ed25519"' "$preflight" || fail 'credential preflight Ed25519 verification missing'
+grep -Fq 'HFS_PRIVATE_READBACK_TOKEN: ${{ secrets.HFS_PRIVATE_READBACK_TOKEN }}' "$preflight" || fail 'credential preflight readback token binding missing'
+for config in HFS_PRIVATE_REPOSITORY HFS_READBACK_WORKFLOW_PATH HFS_READBACK_WORKFLOW_REF HFS_READBACK_JOB_NAME HFS_PRIVATE_AUTHORIZATION_ISSUE; do
+  grep -Fq "$config: "'${{ secrets.'"$config"' }}' "$preflight" || fail "credential preflight configuration binding missing: $config"
+done
+! grep -Eq 'HFS_ED25519_SIGNING_KEY_PEM|HFS_PRIVATE_SOURCE_READ_TOKEN|createPrivateKey|createPublicKey|[^A-Za-z]sign\(' "$preflight" || fail 'credential preflight signing/source credential forbidden'
 grep -Fq 'method: "GET"' "$preflight" || fail 'credential preflight GET-only request missing'
 grep -Fq 'redirect: "error"' "$preflight" || fail 'credential preflight redirect refusal missing'
-grep -Fq '/repos/Ronmel71/hfs-selger-app' "$preflight" || fail 'credential preflight exact private repository missing'
-grep -Fq '/git/ref/heads/staging' "$preflight" || fail 'credential preflight exact private ref missing'
-grep -Fq 'manifest.json?ref=' "$preflight" || fail 'credential preflight immutable manifest read missing'
-grep -Fq 'manifest.consoleGo !== false || manifest.startAuthorized !== false' "$preflight" || fail 'credential preflight must require no-go source'
-grep -Fq 'CREDENTIAL_PREFLIGHT_PASS SIGNER_VALID PRIVATE_READ_VALID NO_WRITES NO_PUBLISH NO_DEPLOY' "$preflight" || fail 'credential preflight fixed PASS marker missing'
+grep -Fq 'privateWorkflowId: 379993056' "$preflight" || fail 'credential preflight exact private workflow missing'
+grep -Fq 'privateIssue: 288' "$preflight" || fail 'credential preflight exact private issue missing'
+grep -Fq '/actions/runs/${runId}/approvals' "$preflight" || fail 'credential preflight native approval read missing'
+grep -Fq 'environmentId: 26423058762' "$preflight" || fail 'credential preflight exact protected environment missing'
+grep -Fq 'reviewerId: 321374159' "$preflight" || fail 'credential preflight exact reviewer missing'
+grep -Fq 'READBACK_PREFLIGHT_PASS PRIVATE_ACTIONS_READ PRIVATE_ISSUE_READ NATIVE_REVIEW_VERIFIED NO_WRITES NO_SIGNING' "$preflight" || fail 'credential preflight fixed PASS marker missing'
 ! grep -Eq 'pull_request:|pull_request_target:|repository_dispatch:|schedule:|^[[:space:]]*push:' "$preflight" || fail 'credential preflight non-manual event forbidden'
-! grep -Eq 'uses:|actions/upload-artifact|docker |[^A-Z]POST[^A-Z]|[^A-Z]PUT[^A-Z]|[^A-Z]PATCH[^A-Z]|[^A-Z]DELETE[^A-Z]|set -x|curl ' "$preflight" || fail 'credential preflight write, external action or shell trace forbidden'
+! grep -Eq 'uses:|actions/upload-artifact|actions/cache|GITHUB_OUTPUT|id-token:|contents:|issues:|deployments:|packages:|docker |[^A-Z]POST[^A-Z]|[^A-Z]PUT[^A-Z]|[^A-Z]PATCH[^A-Z]|[^A-Z]DELETE[^A-Z]|set -x|curl ' "$preflight" || fail 'credential preflight write, external action or shell trace forbidden'
 
 printf 'install-only-workflow.test: PASS\n'
