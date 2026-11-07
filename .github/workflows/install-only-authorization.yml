@@ -1,10 +1,24 @@
 name: Install-only authorization
 
+run-name: Install-only authorization · ${{ inputs.purpose }} · ${{ inputs.request_id }} · artifact ${{ inputs.readback_artifact_id }} · nonce ${{ inputs.authorization_nonce }}
+
 on:
   workflow_dispatch:
     inputs:
+      purpose:
+        description: Exact authorization purpose; INSTALL_ONLY only
+        required: true
+        type: string
+      request_id:
+        description: Canonical request binding digest
+        required: true
+        type: string
       readback_artifact_id:
         description: Opaque private readback artifact identifier
+        required: true
+        type: string
+      authorization_nonce:
+        description: Exact 64-hex nonce bound into the private readback
         required: true
         type: string
 
@@ -18,7 +32,7 @@ concurrency:
 
 jobs:
   authorize:
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.purpose == 'INSTALL_ONLY' }}
     runs-on: ubuntu-24.04
     environment: production-first-start
     timeout-minutes: 10
@@ -33,13 +47,17 @@ jobs:
           HFS_READBACK_JOB_NAME: ${{ secrets.HFS_READBACK_JOB_NAME }}
           HFS_PRIVATE_AUTHORIZATION_ISSUE: ${{ secrets.HFS_PRIVATE_AUTHORIZATION_ISSUE }}
           HFS_ED25519_SIGNING_KEY_PEM: ${{ secrets.HFS_ED25519_SIGNING_KEY_PEM }}
+          HFS_AUTHORIZATION_PURPOSE: ${{ inputs.purpose }}
+          HFS_AUTHORIZATION_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_AUTHORIZATION_NONCE: ${{ inputs.authorization_nonce }}
+          HFS_READBACK_ARTIFACT_ID: ${{ inputs.readback_artifact_id }}
           READBACK_ARTIFACT_ID: ${{ inputs.readback_artifact_id }}
         run: |
           set -Eeuo pipefail
           set +x
           umask 077
           readonly api=https://api.github.com
-          readonly signer_blob=dfbef64858a2c0db89a4f2815c154b8b53819390
+          readonly signer_blob=b4006b25add2f622cf25a06d0cf7adce1d95b72e
           readonly work="$RUNNER_TEMP/install-only-authorization"
           cleanup() {
             status=$?
@@ -58,6 +76,9 @@ jobs:
           [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$GITHUB_RUN_ID" =~ ^[1-9][0-9]{5,19}$ ]]
+          [[ "$HFS_AUTHORIZATION_PURPOSE" == INSTALL_ONLY ]]
+          [[ "$HFS_AUTHORIZATION_REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$HFS_AUTHORIZATION_NONCE" =~ ^[0-9a-f]{64}$ ]]
           [[ "$READBACK_ARTIFACT_ID" =~ ^[1-9][0-9]{5,19}$ ]]
           [[ "$HFS_PRIVATE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
           [[ "$HFS_PRIVATE_AUTHORIZATION_ISSUE" =~ ^[1-9][0-9]{0,9}$ ]]
@@ -95,9 +116,25 @@ jobs:
           curl --fail --silent --show-error --location "${controller_headers[@]}" \
             "$api/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" > "$work/controller-approvals.json"
 
+          page=1
+          while :; do
+            printf -v page_path '%s/inventory-page-%06d.json' "$work" "$page"
+            curl --fail --silent --show-error --location "${controller_headers[@]}" \
+              "$api/repos/$GITHUB_REPOSITORY/actions/runs?event=workflow_dispatch&per_page=100&page=$page" > "$page_path"
+            page_count=$(jq -er '.workflow_runs | length' "$page_path")
+            [[ "$page_count" =~ ^[0-9]+$ && "$page_count" -le 100 ]]
+            if [[ "$page_count" -lt 100 ]]; then
+              break
+            fi
+            page=$((page + 1))
+          done
+          jq -s --arg repository "$GITHUB_REPOSITORY" \
+            '{schema:"hfs.production-first-start.install-only-run-inventory/v1",complete:true,query:{repository:$repository,event:"workflow_dispatch",perPage:100},pages:.}' \
+            "$work"/inventory-page-*.json > "$work/controller-run-inventory.json"
+
           node "$work/signer.mjs" sign \
             "$work/request.json" "$work/readback.json" "$work/controller-run.json" "$work/controller-approvals.json" \
-            "$work/private-run.json" "$work/private-job.json" "$work/artifact.json" > "$work/authorization.json"
+            "$work/controller-run-inventory.json" "$work/private-run.json" "$work/private-job.json" "$work/artifact.json" > "$work/authorization.json"
           jq -e '.schema == "hfs.production-first-start.github-install-authorization-envelope/v1"' "$work/authorization.json" >/dev/null
           jq -n --rawfile authorization "$work/authorization.json" \
             '{body:("INSTALL_ONLY_AUTHORIZATION\n\n```json\n" + $authorization + "```\n")}' > "$work/comment.json"

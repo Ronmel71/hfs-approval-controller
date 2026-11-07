@@ -18,7 +18,9 @@ The fixed `database_table_count=44` trust field is schema compatibility only. Th
 4. provide the private repository, existing readback workflow/ref, expected job name, and delivery issue only as protected environment secrets;
 5. dispatch once with the opaque artifact ID produced by the authenticated independent readback job.
 
-The job has no checkout and uses no external action. After native approval it fetches its own run and approval records, fetches the private readback artifact and exact run/job provenance, signs a 60-minute authorization envelope, and delivers that envelope only to the private repository. It never logs the private request or signed envelope.
+The dispatch must declare `purpose=INSTALL_ONLY`, the exact readback artifact ID and nonce, and the canonical request ID. That SHA-256 request ID binds the purpose, reviewed controller head, exact release commit and manifest/bundle/readback digests, immutable readback run/job/artifact identity and digest, and nonce. The signer re-derives it before signing; the private consumer independently re-derives it before accepting.
+
+The job has no checkout and uses no external action. After native approval it fetches its own run and approval records, exhaustively paginates repository-wide `workflow_dispatch` runs, and refuses unless exactly one run has the canonical request/artifact/nonce run name. Incomplete inventory, duplicate runs, reruns, another workflow or branch, a different reviewer, and an old or audit-only request all fail closed. It then fetches the private readback artifact and exact run/job provenance, signs an authorization whose expiry is at most 3,600 seconds after issuance, and delivers that envelope only to the private repository. It never logs the private request or signed envelope.
 
 No key, secret, environment value, dispatch, signature, or authorization is created by this repository state.
 
