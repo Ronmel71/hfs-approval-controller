@@ -1,5 +1,17 @@
 # Current status
 
+## 2026-11-07 — issue #317 safe INSTALL_ONLY phase diagnostics
+
+- Controller PR #10 on `fix/issue-317-phase-errors` adds one fail-closed `ERR` contract to `install-only-authorization.yml`. The only failure marker is `INSTALL_ONLY_AUTHORIZATION_ERROR phase=<PUBLIC_PHASE_ID> exit=<NUMERIC_STATUS>`; tool stderr is suppressed so URLs, paths, response bodies, request values, nonces, tokens and signed-envelope content are not logged.
+- Fixed public phases cover preflight, source pin, artifact metadata, artifact ZIP, ZIP members, request/provenance, native approval, complete paginated inventory, signer and issue delivery. The original numeric status is preserved, including `jq` exit 4.
+- Synthetic offline tests force failures from `curl`, `jq`, `unzip`, `node` and a shell guard. Each case emits exactly one expected marker, leaks none of the injected sensitive diagnostics, preserves the exit status, and proves that signing and issue-write sentinels cannot run afterward.
+- Existing fail-closed authentication, anti-replay, SHA/signature verification, signed expiry, reviewer/environment policy, least privilege, cleanup and no-retry/no-fallback behavior remain intact. The full 36-test Node suite, both existing workflow contracts, protected credential preflight tests, YAML parsing, diff checks and controller PR CI are green.
+- No workflow was dispatched, rerun or retried; no signature or private issue comment was created; no secret, token, environment, artifact, host, install, start, merge, deploy or production data was changed. `installAuthorized=false`, `startAuthorized=false`. Work/Codex usage: 0 calls.
+
+### Next gate
+
+Review controller PR #10. Do not merge or dispatch from this task; any later activation remains a separate exact-SHA approval.
+
 ## 2026-11-07 — issue #293 isolated readback credential preflight
 
 - Branch `feat/issue-293-readback-preflight` updates the existing protected credential preflight, its code-only PR test path, offline tests, and documentation. It replaces the old source-reader/signing challenge with an isolated `HFS_PRIVATE_READBACK_TOKEN` read-only verifier.
