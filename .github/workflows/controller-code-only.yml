@@ -16,6 +16,8 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Test signer contract
         run: node --test tests/install-only-authorization.test.mjs tests/install-only-activation-materials.test.mjs tests/production-first-start-continuity.test.mjs
+      - name: Test connectivity-only approval contract
+        run: node --test tests/connectivity-only-review.test.mjs
       - name: Test inert workflow contract
         run: |
           bash tests/install-only-workflow.test.sh
@@ -23,3 +25,4 @@ jobs:
           bash tests/install-only-signer-callsite.test.sh
           bash tests/production-first-start-continuity-workflow.test.sh
           node tests/protected-credential-preflight.test.mjs
+
