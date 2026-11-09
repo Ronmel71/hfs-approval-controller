@@ -1,0 +1,47 @@
+name: Connectivity-only approval
+run-name: Connectivity-only approval · ${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Opaque one-use SHA-256 request binding; connectivity only
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connectivity-only-review-${{ inputs.request_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Validate opaque request before requesting review
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+
+  approve:
+    needs: validate
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && needs.validate.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: production-first-start
+    timeout-minutes: 2
+    steps:
+      - name: Record connectivity-only approval without accessing credentials
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+          printf 'CONNECTIVITY_ONLY_APPROVAL_RECORDED\n'
