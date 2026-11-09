@@ -1,5 +1,16 @@
 # Current status
 
+## 2026-11-09 — dedicated connectivity-only native approval (code review)
+
+- Adds a separate manual, first-attempt `main` workflow for one opaque 64-hex request, using the existing protected `production-first-start` environment. It validates the request before native review and emits only a harmless connectivity approval marker afterward.
+- The new workflow contains no checkout, secret, signing, artifact, API write, host access or install/start path. Existing stage-only and authorization workflows, credentials and environment settings remain unchanged. Public inputs disclose no private source or target details.
+- Three local Node contract tests pass. The existing code-only PR check also includes these tests. The private consumer must independently bind exact source/purpose/nonce, pinned workflow/reviewer/environment, freshness and single use; this workflow alone grants no server authority.
+- This change is code-only. No operational workflow dispatch, merge, environment/secret change, remote test, install, start or deploy is authorized by this PR.
+
+### Next gate
+
+Review this controller PR and the private consumer change together. Merge and any later diagnostic dispatch require separate approval; do not reuse any install/start approval for connectivity.
+
 ## 2026-11-08 — issue #321 signer basename and safe refusal diagnostics
 
 - Branch `fix/issue-321-signer-basename` is based on verified controller `main` commit `adb53fdab348c52d545bc424857774cac1f0e002`. The authorization workflow now writes the pinned signer bytes to the required basename `install-only-authorization.mjs` and uses that exact file for both `git hash-object` verification and the Node CLI call.
@@ -62,3 +73,4 @@ Review the exact controller and private app PR heads together. A green CI result
 ### Next gate
 
 Review and merge the single controller PR as a code-only change. Even after merge, publication remains disabled. Any later activation requires a separate SHA-specific review and provisioning decision; the private consumer must remain unpinned until the real controller workflow ID is known and separately reviewed.
+
