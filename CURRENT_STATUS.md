@@ -1,5 +1,30 @@
 # Current status
 
+## 2026-11-16 — issue #430 branch-protection readback capability correction
+
+- Existing controller PR #13 and branch `feat/issue-428-public-release-controller` were updated in place; no replacement branch or PR was created. The issue-pinned head/base matched before editing, and the verified `stage-only-review.yml` blob remains `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.
+- Capability readback confirmed that public `/branches/main` exposes only a weak `protected: true`; public `/rulesets` and `/rules/branches/main` are empty for the controller's classic protection. None can prove enforce-admins ON plus force-push/deletion OFF. Exact `/branches/main/protection` remains the necessary evidence and requires Administration read.
+- Native approval/environment reads retain the ordinary job `GITHUB_TOKEN` with `actions: read`. Branch-protection readback now requires only a distinct environment-scoped `HFS_CONTROLLER_ADMIN_READ_TOKEN`; missing credentials and provider 403 responses have distinct fail-closed results. Workflow permissions were not expanded and no credential, environment, reviewer, secret, variable, or policy was created or changed.
+- Deploy's historical image-run native approval, exact image source blobs, and retained ZIP/digest provenance are now verified inside the credentialed deploy job after its native environment pause and before private checkout, host credentials, or the executor. The pre-gate job remains credential-free and only validates immutable request/run bindings and complete anti-replay inventory.
+- Offline coverage includes provider 200, missing admin-read credential, provider 403, unsupported `administration` workflow permission, changed enforce-admin/force-push/deletion policy, and rejection of weaker public alternatives. Both privileged controller jobs and both private-app jobs remain literal-disabled. No dispatch/rerun, GHCR, host/WireGuard/SSH, private-app change, merge, or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Activation remains blocked until a separately approved task provisions and live-proves one controller-repository-scoped GitHub App or fine-grained token with Administration read and no Administration write as the protected environment secret `HFS_CONTROLLER_ADMIN_READ_TOKEN`.
+
+## 2026-11-16 — issue #429 native approval and image provenance correction
+
+- Existing controller PR #13 and branch `feat/issue-428-public-release-controller` remain based on protected `main` `b379829c3fbcb87df9b70e1fb82f50296373cc6a`; no replacement branch or PR was created. The verified `stage-only-review.yml` blob remains byte-for-byte `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.
+- The request contract no longer contains or fabricates `nativeApproval`. `validate-request` now proves request/run/app/controller bindings, freshness, secret-name scope, and complete anti-replay inventory before the native gate. Each dormant protected job has a distinct after-gate `verify-native-approval` step before any private-source, publisher, host credential, or executor use.
+- The after-gate verifier reads the real run approvals, environment configuration, and protected-main policy. It requires one Ronny approval (ID `321374159`), the exact purpose-specific environment name and numeric ID, admin bypass off, self-review prevention off, attempt 1, and an approval timestamp inside the request lifetime. The two new environment IDs are intentionally `null` until a separately authorized environment task creates and proves them; missing IDs, API denial, or missing approval timestamps fail closed.
+- Deploy provenance no longer trusts syntactically valid `HFS_PUBLICATION_*` inputs. It verifies one completed/successful first-attempt image run, exact controller head/workflow/executor blobs, original request ID/nonce and native image approval, exhaustive publication/deploy anti-replay inventory, and one nonexpired run-bound artifact. It verifies the downloaded ZIP's GitHub SHA-256 digest, exact single JSON member, app SHA/tree, publication times, and full immutable GHCR reference/digest. The dormant publisher writes and uploads that minimal provenance artifact only after registry digest readback.
+- Both privileged jobs remain literal `if: ${{ false }}`. Existing source pin `798ada90d2b6461a59d4b495ca3798b110b1a2e6`, split secret scopes, /32 WireGuard, pinned `hfsdeploy@10.77.0.1`, no-clobber staging, narrow root helper, sanitized logging, and rollback boundaries are preserved.
+- Offline tests cover missing/other/duplicate approvals, wrong environment/name/ID, bypass, self-review deadlock, approval timestamp/expiry and API 403; forged run IDs, fabricated/wrong digests, app/controller drift, stale image approval, failed/retried/mutated publisher, missing/tampered artifact, duplicate consumers, and correct mocked authoritative linkage. No dispatch, rerun, environment/reviewer/secret/policy change, GHCR operation, host/WireGuard/SSH access, merge, deploy, or private-app change occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review updated controller PR #13. Environment creation, numeric-ID pinning, live approvals timestamp capability proof, literal stop-gate removal, publisher execution, app repin, secret migration, merge, image publication, and deploy remain separate exact-SHA-authorized tasks.
+
 ## 2026-11-09 — dedicated connectivity-only native approval (code review)
 
 - Adds a separate manual, first-attempt `main` workflow for one opaque 64-hex request, using the existing protected `production-first-start` environment. It validates the request before native review and emits only a harmless connectivity approval marker afterward.
@@ -73,4 +98,3 @@ Review the exact controller and private app PR heads together. A green CI result
 ### Next gate
 
 Review and merge the single controller PR as a code-only change. Even after merge, publication remains disabled. Any later activation requires a separate SHA-specific review and provisioning decision; the private consumer must remain unpinned until the real controller workflow ID is known and separately reviewed.
-

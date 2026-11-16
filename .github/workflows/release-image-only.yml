@@ -1,0 +1,149 @@
+name: Release image only (dormant controller candidate)
+run-name: Release image only · RELEASE_IMAGE_ONLY · ${{ inputs.request_id }} · ${{ inputs.nonce }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Canonical 64-hex PREPARE_IMAGE request binding
+        required: true
+        type: string
+      nonce:
+        description: Fresh one-use 64-hex request nonce
+        required: true
+        type: string
+      created_at_epoch:
+        description: Request creation epoch
+        required: true
+        type: string
+      expires_at_epoch:
+        description: Expiry no later than 30 minutes after creation
+        required: true
+        type: string
+      controller_head:
+        description: Exact reviewed controller main SHA
+        required: true
+        type: string
+      controller_workflow_blob:
+        description: Exact blob of this workflow at controller_head
+        required: true
+        type: string
+      controller_executor_blob:
+        description: Exact release-image-only.sh blob at controller_head
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-image-only-${{ inputs.request_id }}-${{ inputs.nonce }}
+  cancel-in-progress: false
+
+jobs:
+  validate-request:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact public controller source without retained credential
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate immutable controller and app request pins
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          NONCE: ${{ inputs.nonce }}
+          CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+          GH_TOKEN: ${{ github.token }}
+          HFS_RELEASE_PURPOSE: RELEASE_IMAGE_ONLY
+          HFS_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_NONCE: ${{ inputs.nonce }}
+          HFS_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$NONCE" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$CREATED_AT_EPOCH" =~ ^[0-9]{10}$ ]]
+          [[ "$EXPIRES_AT_EPOCH" =~ ^[0-9]{10}$ ]]
+          (( EXPIRES_AT_EPOCH > CREATED_AT_EPOCH ))
+          (( EXPIRES_AT_EPOCH - CREATED_AT_EPOCH <= 1800 ))
+          test "$CONTROLLER_HEAD" = "$GITHUB_SHA"
+          test "$CONTROLLER_WORKFLOW_BLOB" = "$(git rev-parse HEAD:.github/workflows/release-image-only.yml)"
+          test "$CONTROLLER_EXECUTOR_BLOB" = "$(git rev-parse HEAD:scripts/release-image-only.sh)"
+          test "$(git rev-parse HEAD^{tree})" = "$(git show -s --format=%T "$CONTROLLER_HEAD")"
+          node scripts/release-controller-preflight.mjs validate-request
+
+  release-image-only:
+    # Absolute stop-gate. A later exact-SHA code task may replace this only after
+    # the public controller environment is independently proven protected.
+    if: ${{ false }}
+    needs: validate-request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production-image-publication
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      image-reference: ${{ steps.publish.outputs.PUBLISHED_IMAGE_REFERENCE }}
+    steps:
+      - name: Check out exact public controller source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Re-read native image approval and environment policy before credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HFS_CONTROLLER_ADMIN_READ_TOKEN: ${{ secrets.HFS_CONTROLLER_ADMIN_READ_TOKEN }}
+          HFS_RELEASE_PURPOSE: RELEASE_IMAGE_ONLY
+          HFS_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_NONCE: ${{ inputs.nonce }}
+          HFS_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+        run: node scripts/release-controller-preflight.mjs verify-native-approval
+      - name: Check out exact private app source after native environment approval
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Ronmel71/hfs-selger-app
+          ref: 798ada90d2b6461a59d4b495ca3798b110b1a2e6
+          token: ${{ secrets.HFS_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - name: Build, publish, and read back the immutable digest
+        id: publish
+        working-directory: private-app
+        env:
+          HFS_GHCR_PUBLISH_TOKEN: ${{ secrets.HFS_GHCR_PUBLISH_TOKEN }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          HFS_APP_COMMIT: 798ada90d2b6461a59d4b495ca3798b110b1a2e6
+          HFS_APP_TREE: 782771cf58956453d31313756252ba073a852c5c
+          HFS_APP_WORKFLOW_BLOB: 2c15f1e1a47af65d309c08eca4b86cbb445734a0
+          HFS_PUBLICATION_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_PUBLICATION_NONCE: ${{ inputs.nonce }}
+          HFS_PUBLICATION_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_PUBLICATION_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+        run: ../scripts/release-image-only.sh
+      - name: Preserve immutable image provenance for the deploy verifier
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hfs-release-image-provenance
+          path: ${{ runner.temp }}/hfs-release-image-provenance.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
