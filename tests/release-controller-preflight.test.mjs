@@ -2,13 +2,16 @@ import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { POLICY, finalizeRequest } from "../scripts/release-controller-contract.mjs";
-import { validateRequestPhase, verifyNativeApprovalPhase } from "../scripts/release-controller-preflight.mjs";
+import { attestPrivateAppSource, validateRequestPhase, verifyNativeApprovalPhase } from "../scripts/release-controller-preflight.mjs";
 
 const originalFetch = globalThis.fetch;
 const originalEnvironment = { ...process.env };
 const now = Math.floor(Date.now() / 1000);
 const sha = (character, length = 64) => character.repeat(length);
 const iso = (epoch) => new Date(epoch * 1000).toISOString();
+const APP_COMMIT = sha("1", 40);
+const APP_TREE = sha("2", 40);
+const STAGING_HEAD = sha("3", 40);
 
 function jsonResponse(value, status = 200) {
   return {
@@ -62,8 +65,8 @@ function appPins() {
   return {
     repository: POLICY.appRepository,
     ref: POLICY.appRef,
-    commit: POLICY.appCommit,
-    tree: POLICY.appTree,
+    commit: APP_COMMIT,
+    tree: APP_TREE,
     workflow: POLICY.appWorkflow,
     workflowBlob: POLICY.appWorkflowBlob,
     composeBlob: POLICY.composeBlob,
@@ -126,6 +129,32 @@ function environment(name, id) {
   };
 }
 
+function privateSourceResponse(url, request, mutate = () => {}) {
+  const path = new URL(url).pathname;
+  const prefix = `/repos/${POLICY.appRepository}`;
+  if (!path.startsWith(prefix)) return null;
+  const state = {
+    repository: { full_name: POLICY.appRepository, private: true, fork: false },
+    ref: { ref: POLICY.appRef, object: { sha: STAGING_HEAD } },
+    commit: { sha: request.app.commit, commit: { tree: { sha: request.app.tree } } },
+    comparison: { status: "ahead", base_commit: { sha: request.app.commit }, merge_base_commit: { sha: request.app.commit } },
+    blobs: new Map([
+      [POLICY.appWorkflow, POLICY.appWorkflowBlob],
+      ["deploy/production/docker-compose.yml", POLICY.composeBlob],
+      ["deploy/production/Caddyfile", POLICY.caddyBlob],
+      ["deploy/production/host/hfs-deploy-release", POLICY.helperBlob],
+      ["deploy/production/host/hfsdeploy-sudoers", POLICY.sudoersBlob],
+    ]),
+  };
+  mutate(state);
+  if (path === prefix) return jsonResponse(state.repository);
+  if (path === `${prefix}/git/ref/heads/staging`) return jsonResponse(state.ref);
+  if (path === `${prefix}/commits/${request.app.commit}`) return jsonResponse(state.commit);
+  if (path === `${prefix}/compare/${request.app.commit}...${STAGING_HEAD}`) return jsonResponse(state.comparison);
+  for (const [file, blob] of state.blobs) if (path === `${prefix}/contents/${file}`) return jsonResponse({ sha: blob });
+  return null;
+}
+
 const branchProtection = {
   enforce_admins: { enabled: true },
   allow_force_pushes: { enabled: false },
@@ -159,7 +188,7 @@ function configureImage() {
     secretNames: [...policy.secrets],
     image: null,
   });
-  run.display_title = `Release image only · RELEASE_IMAGE_ONLY · ${request.requestId} · ${request.nonce}`;
+  run.display_title = `Release image only · RELEASE_IMAGE_ONLY · ${request.app.commit} · ${request.requestId} · ${request.nonce}`;
   setRequestEnvironment(request);
   return { request, run };
 }
@@ -168,12 +197,15 @@ function setRequestEnvironment(request) {
   Object.assign(process.env, {
     GH_TOKEN: "synthetic-token",
     HFS_CONTROLLER_ADMIN_READ_TOKEN: "synthetic-admin-read-token",
+    HFS_PRIVATE_SOURCE_READ_TOKEN: "synthetic-private-source-token",
     GITHUB_RUN_ID: String(request.run.id),
     HFS_RELEASE_PURPOSE: request.purpose,
     HFS_REQUEST_ID: request.requestId,
     HFS_NONCE: request.nonce,
     HFS_CREATED_AT_EPOCH: String(request.createdAtEpoch),
     HFS_EXPIRES_AT_EPOCH: String(request.expiresAtEpoch),
+    HFS_APP_COMMIT: request.app.commit,
+    HFS_APP_TREE: request.app.tree,
     HFS_CONTROLLER_HEAD: request.controller.head,
     HFS_CONTROLLER_WORKFLOW_BLOB: request.controller.workflowBlob,
     HFS_CONTROLLER_EXECUTOR_BLOB: request.controller.executorBlob,
@@ -215,7 +247,7 @@ function configureDeploy(mutate = () => {}) {
     secretNames: [...imagePolicy.secrets],
     image: null,
   });
-  imageRun.display_title = `Release image only · RELEASE_IMAGE_ONLY · ${imageRequest.requestId} · ${imageRequest.nonce}`;
+  imageRun.display_title = `Release image only · RELEASE_IMAGE_ONLY · ${imageRequest.app.commit} · ${imageRequest.requestId} · ${imageRequest.nonce}`;
   const reference = `ghcr.io/ronmel71/hfs-selger-app@sha256:${sha("9")}`;
   const deployRun = githubRun(555000222, deployPolicy.workflow, sha("b", 40));
   deployRun.status = "in_progress";
@@ -259,8 +291,8 @@ function configureDeploy(mutate = () => {}) {
     controllerExecutorBlob: imageRequest.controller.executorBlob,
     appRepository: POLICY.appRepository,
     appRef: POLICY.appRef,
-    appCommit: POLICY.appCommit,
-    appTree: POLICY.appTree,
+    appCommit: APP_COMMIT,
+    appTree: APP_TREE,
     imageReference: reference,
     imageDigest: reference.split("@")[1],
     publishedAtEpoch: now - 40,
@@ -295,7 +327,7 @@ function configureDeploy(mutate = () => {}) {
       publicationRequestId: state.imageRequest.requestId,
     },
   });
-  deployRun.display_title = `Release deploy only · RELEASE_DEPLOY_ONLY · ${deployRequest.requestId} · ${deployRequest.nonce} · publication ${deployRequest.image.publicationRunId}`;
+  deployRun.display_title = `Release deploy only · RELEASE_DEPLOY_ONLY · ${deployRequest.app.commit} · ${deployRequest.requestId} · ${deployRequest.nonce} · publication ${deployRequest.image.publicationRunId}`;
   setRequestEnvironment(deployRequest);
   state.deployRun = deployRun;
   state.deployRequest = deployRequest;
@@ -316,6 +348,8 @@ function configureDeploy(mutate = () => {}) {
 function installDeployFetch(state) {
   globalThis.fetch = async (url) => {
     if (state.apiDenied) return jsonResponse({}, 403);
+    const source = privateSourceResponse(url, state.deployRequest);
+    if (source) return source;
     const parsed = new URL(url);
     const path = `${parsed.pathname}${parsed.search}`;
     if (path.endsWith(`/actions/runs/${state.deployRun.id}`)) return jsonResponse(state.deployRun);
@@ -354,6 +388,19 @@ describe("release controller phased preflight", () => {
     await assert.doesNotReject(validateRequestPhase());
   });
 
+  it("keeps private source credentials and calls out of the pre-gate phase", async () => {
+    const { run } = configureImage();
+    delete process.env.HFS_PRIVATE_SOURCE_READ_TOKEN;
+    const urls = [];
+    globalThis.fetch = async (url) => {
+      urls.push(url);
+      if (url.endsWith(`/actions/runs/${run.id}`)) return jsonResponse(run);
+      return jsonResponse({ total_count: 1, workflow_runs: [run] });
+    };
+    await assert.doesNotReject(validateRequestPhase());
+    assert.equal(urls.some((url) => url.includes(POLICY.appRepository)), false);
+  });
+
   it("rejects duplicate request consumers", async () => {
     const { run } = configureImage();
     const duplicate = { ...run, id: run.id + 1 };
@@ -367,6 +414,8 @@ describe("release controller phased preflight", () => {
     const { request, run } = configureImage();
     const id = 202020;
     globalThis.fetch = async (url) => {
+      const source = privateSourceResponse(url, request);
+      if (source) return source;
       if (url.endsWith(`/actions/runs/${run.id}`)) return jsonResponse(run);
       if (url.endsWith(`/actions/runs/${run.id}/approvals`)) {
         return jsonResponse([{ state: "approved", user: { login: POLICY.reviewer, id: POLICY.reviewerId }, environments: [{ name: POLICY.purposes.RELEASE_IMAGE_ONLY.environment, id }], submitted_at: iso(now - 50) }]);
@@ -402,6 +451,28 @@ describe("release controller phased preflight", () => {
       return jsonResponse({});
     };
     await assert.rejects(verifyNativeApprovalPhase({ expectedEnvironmentId: 1 }), /PREFLIGHT_ADMIN_READ_HTTP_403/);
+  });
+});
+
+describe("post-approval private source attestation", () => {
+  for (const [name, mutate, code] of [
+    ["wrong repository", (s) => { s.repository.full_name = "attacker/fork"; }, "SOURCE_ATTESTATION_PIN"],
+    ["wrong reviewed branch", (s) => { s.ref.ref = "refs/heads/main"; }, "SOURCE_ATTESTATION_PIN"],
+    ["unmerged commit", (s) => { s.comparison.status = "diverged"; }, "SOURCE_ATTESTATION_ANCESTRY"],
+    ["tree mismatch", (s) => { s.commit.commit.tree.sha = sha("7", 40); }, "SOURCE_ATTESTATION_PIN"],
+    ["altered infrastructure blob", (s) => { s.blobs.set("deploy/production/Caddyfile", sha("7", 40)); }, "SOURCE_ATTESTATION_PIN"],
+  ]) {
+    it(`rejects ${name}`, async () => {
+      const { request } = configureImage();
+      globalThis.fetch = async (url) => privateSourceResponse(url, request, mutate) ?? jsonResponse({}, 404);
+      await assert.rejects(attestPrivateAppSource(request), new RegExp(code));
+    });
+  }
+
+  it("fails closed on private provider API failure", async () => {
+    const { request } = configureImage();
+    globalThis.fetch = async () => jsonResponse({}, 500);
+    await assert.rejects(attestPrivateAppSource(request), /SOURCE_ATTESTATION_RESPONSE/);
   });
 });
 

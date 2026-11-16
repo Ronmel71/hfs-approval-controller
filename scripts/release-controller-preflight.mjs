@@ -17,10 +17,10 @@ const asEpoch = (value, code) => {
   return Math.floor(parsed / 1000);
 };
 
-async function githubResponse(path, { binary = false, token, errorPrefix = "PREFLIGHT_API" } = {}) {
+async function githubResponse(path, { binary = false, token, errorPrefix = "PREFLIGHT_API", repository = POLICY.controllerRepository } = {}) {
   let response;
   try {
-    response = await fetch(`https://api.github.com/repos/${POLICY.controllerRepository}${path}`, {
+    response = await fetch(`https://api.github.com/repos/${repository}${path}`, {
       method: "GET",
       headers: {
         Accept: "application/vnd.github+json",
@@ -91,12 +91,12 @@ async function completeInventory() {
   refuse("PREFLIGHT_INVENTORY_INCOMPLETE");
 }
 
-function appPins() {
+function appPins(commit = required("HFS_APP_COMMIT"), tree = required("HFS_APP_TREE")) {
   return {
     repository: POLICY.appRepository,
     ref: POLICY.appRef,
-    commit: POLICY.appCommit,
-    tree: POLICY.appTree,
+    commit,
+    tree,
     workflow: POLICY.appWorkflow,
     workflowBlob: POLICY.appWorkflowBlob,
     composeBlob: POLICY.composeBlob,
@@ -165,7 +165,43 @@ function buildRequest(run) {
 function requestTitle(request) {
   const prefix = request.purpose === "RELEASE_IMAGE_ONLY" ? "Release image only" : "Release deploy only";
   const publication = request.purpose === "RELEASE_DEPLOY_ONLY" ? ` · publication ${request.image.publicationRunId}` : "";
-  return `${prefix} · ${request.purpose} · ${request.requestId} · ${request.nonce}${publication}`;
+  return `${prefix} · ${request.purpose} · ${request.app.commit} · ${request.requestId} · ${request.nonce}${publication}`;
+}
+
+async function privateAppJson(path) {
+  return getJson(path, {
+    token: required("HFS_PRIVATE_SOURCE_READ_TOKEN"),
+    errorPrefix: "SOURCE_ATTESTATION",
+    repository: POLICY.appRepository,
+  });
+}
+
+export async function attestPrivateAppSource(request) {
+  const appRefPath = POLICY.appRef.replace("refs/", "");
+  const [repository, stagingRef, commit, workflow, compose, caddy, helper, sudoers] = await Promise.all([
+    privateAppJson(""),
+    privateAppJson(`/git/ref/${appRefPath}`),
+    privateAppJson(`/commits/${request.app.commit}`),
+    privateAppJson(`/contents/${POLICY.appWorkflow}?ref=${request.app.commit}`),
+    privateAppJson(`/contents/deploy/production/docker-compose.yml?ref=${request.app.commit}`),
+    privateAppJson(`/contents/deploy/production/Caddyfile?ref=${request.app.commit}`),
+    privateAppJson(`/contents/deploy/production/host/hfs-deploy-release?ref=${request.app.commit}`),
+    privateAppJson(`/contents/deploy/production/host/hfsdeploy-sudoers?ref=${request.app.commit}`),
+  ]);
+  const stagingHead = stagingRef?.object?.sha;
+  if (repository?.full_name !== POLICY.appRepository || repository?.private !== true || repository?.fork !== false ||
+      stagingRef?.ref !== POLICY.appRef || !/^[0-9a-f]{40}$/.test(stagingHead ?? "") ||
+      commit?.sha !== request.app.commit || commit?.commit?.tree?.sha !== request.app.tree ||
+      workflow?.sha !== POLICY.appWorkflowBlob || compose?.sha !== POLICY.composeBlob ||
+      caddy?.sha !== POLICY.caddyBlob || helper?.sha !== POLICY.helperBlob || sudoers?.sha !== POLICY.sudoersBlob) {
+    refuse("SOURCE_ATTESTATION_PIN");
+  }
+  const comparison = await privateAppJson(`/compare/${request.app.commit}...${stagingHead}`);
+  if (!["ahead", "identical"].includes(comparison?.status) ||
+      comparison?.base_commit?.sha !== request.app.commit || comparison?.merge_base_commit?.sha !== request.app.commit) {
+    refuse("SOURCE_ATTESTATION_ANCESTRY");
+  }
+  return Object.freeze({ appCommit: request.app.commit, appTree: request.app.tree, stagingHead });
 }
 
 function assertRunProvenance(run, purposePolicy) {
@@ -279,8 +315,8 @@ async function publicationEvidenceInner(request, runs, expectedEnvironmentId) {
   assertRunProvenance(publicationRun, POLICY.purposes.RELEASE_IMAGE_ONLY);
   if (publicationRun.status !== "completed" || publicationRun.conclusion !== "success" ||
       publicationRun.head_sha !== request.image.publicationControllerHead) refuse("PROVENANCE_RUN");
-  const title = /^Release image only · RELEASE_IMAGE_ONLY · ([0-9a-f]{64}) · ([0-9a-f]{64})$/.exec(publicationRun.display_title);
-  if (!title || title[1] !== request.image.publicationRequestId) refuse("PROVENANCE_REQUEST");
+  const title = /^Release image only · RELEASE_IMAGE_ONLY · ([0-9a-f]{40}) · ([0-9a-f]{64}) · ([0-9a-f]{64})$/.exec(publicationRun.display_title);
+  if (!title || title[1] !== request.app.commit || title[2] !== request.image.publicationRequestId) refuse("PROVENANCE_REQUEST");
   const publicationMatches = runs.filter((run) => run.display_title === publicationRun.display_title &&
     run.path?.split("@")[0] === POLICY.purposes.RELEASE_IMAGE_ONLY.workflow);
   if (publicationMatches.length !== 1 || String(publicationMatches[0].id) !== String(publicationRun.id) ||
@@ -310,7 +346,7 @@ async function publicationEvidenceInner(request, runs, expectedEnvironmentId) {
     nonce: manifest.nonce,
     createdAtEpoch: manifest.createdAtEpoch,
     expiresAtEpoch: manifest.expiresAtEpoch,
-    app: appPins(),
+    app: appPins(manifest.appCommit, manifest.appTree),
     controller: {
       repository: POLICY.controllerRepository,
       ref: POLICY.controllerRef,
@@ -370,6 +406,7 @@ export async function verifyNativeApprovalPhase({
   const request = buildRequest(run);
   if (request.requestId !== required("HFS_REQUEST_ID") || run.display_title !== requestTitle(request)) refuse("PREFLIGHT_REQUEST_ID");
   await readNativeEvidence(request, run, expectedEnvironmentId ?? purposePolicy.environmentId);
+  await attestPrivateAppSource(request);
   if (purpose === "RELEASE_DEPLOY_ONLY") {
     const runs = await completeInventory();
     validateConsumerInventory(request, runs);
