@@ -1,5 +1,5 @@
 name: Release deploy only (dormant controller candidate)
-run-name: Release deploy only · RELEASE_DEPLOY_ONLY · ${{ inputs.request_id }} · ${{ inputs.nonce }}
+run-name: Release deploy only · RELEASE_DEPLOY_ONLY · ${{ inputs.request_id }} · ${{ inputs.nonce }} · publication ${{ inputs.publication_run_id }}
 
 on:
   workflow_dispatch:
@@ -115,7 +115,7 @@ jobs:
           test "$CONTROLLER_HEAD" = "$GITHUB_SHA"
           test "$CONTROLLER_WORKFLOW_BLOB" = "$(git rev-parse HEAD:.github/workflows/release-deploy-only.yml)"
           test "$CONTROLLER_EXECUTOR_BLOB" = "$(git rev-parse HEAD:scripts/release-deploy-only.sh)"
-          node scripts/release-controller-preflight.mjs
+          node scripts/release-controller-preflight.mjs validate-request
 
   release-deploy-only:
     # Absolute stop-gate. A later exact-SHA code task may replace this only after
@@ -133,6 +133,23 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - name: Re-read distinct native deploy approval and environment policy before credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HFS_RELEASE_PURPOSE: RELEASE_DEPLOY_ONLY
+          HFS_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_NONCE: ${{ inputs.nonce }}
+          HFS_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+          HFS_IMAGE_REFERENCE: ${{ inputs.image_reference }}
+          HFS_PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
+          HFS_PUBLICATION_REQUEST_ID: ${{ inputs.publication_request_id }}
+          HFS_PUBLICATION_CONTROLLER_HEAD: ${{ inputs.publication_controller_head }}
+          HFS_PUBLICATION_WORKFLOW_BLOB: ${{ inputs.publication_workflow_blob }}
+        run: node scripts/release-controller-preflight.mjs verify-native-approval
       - name: Check out exact private app deployment files after native environment approval
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:

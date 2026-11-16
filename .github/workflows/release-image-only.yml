@@ -81,7 +81,7 @@ jobs:
           test "$CONTROLLER_WORKFLOW_BLOB" = "$(git rev-parse HEAD:.github/workflows/release-image-only.yml)"
           test "$CONTROLLER_EXECUTOR_BLOB" = "$(git rev-parse HEAD:scripts/release-image-only.sh)"
           test "$(git rev-parse HEAD^{tree})" = "$(git show -s --format=%T "$CONTROLLER_HEAD")"
-          node scripts/release-controller-preflight.mjs
+          node scripts/release-controller-preflight.mjs validate-request
 
   release-image-only:
     # Absolute stop-gate. A later exact-SHA code task may replace this only after
@@ -101,6 +101,18 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - name: Re-read native image approval and environment policy before credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HFS_RELEASE_PURPOSE: RELEASE_IMAGE_ONLY
+          HFS_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_NONCE: ${{ inputs.nonce }}
+          HFS_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+        run: node scripts/release-controller-preflight.mjs verify-native-approval
       - name: Check out exact private app source after native environment approval
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -119,4 +131,18 @@ jobs:
           HFS_APP_COMMIT: 798ada90d2b6461a59d4b495ca3798b110b1a2e6
           HFS_APP_TREE: 782771cf58956453d31313756252ba073a852c5c
           HFS_APP_WORKFLOW_BLOB: 2c15f1e1a47af65d309c08eca4b86cbb445734a0
+          HFS_PUBLICATION_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_PUBLICATION_NONCE: ${{ inputs.nonce }}
+          HFS_PUBLICATION_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_PUBLICATION_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
         run: ../scripts/release-image-only.sh
+      - name: Preserve immutable image provenance for the deploy verifier
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hfs-release-image-provenance
+          path: ${{ runner.temp }}/hfs-release-image-provenance.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

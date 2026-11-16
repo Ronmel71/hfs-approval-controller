@@ -1,20 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { POLICY, finalizeRequest, validatePublishedImage, validateRequest } from "../scripts/release-controller-contract.mjs";
+import {
+  POLICY,
+  finalizeRequest,
+  validateNativeApprovalEvidence,
+  validatePublishedImage,
+  validateRequest,
+} from "../scripts/release-controller-contract.mjs";
 
-const now = 1_800_000_000;
+const now = 2_000_000_000;
 const sha = (character, length = 64) => character.repeat(length);
 
 function fixture(purpose = "RELEASE_IMAGE_ONLY") {
   const purposePolicy = POLICY.purposes[purpose];
-  const request = {
+  return finalizeRequest({
     schema: POLICY.schema,
     purpose,
     approvalPurpose: purposePolicy.approvalPurpose,
     requestId: sha("0"),
     nonce: sha("a"),
-    createdAtEpoch: now - 60,
-    expiresAtEpoch: now + 1_200,
+    createdAtEpoch: now - 120,
+    expiresAtEpoch: now + 600,
     app: {
       repository: POLICY.appRepository,
       ref: POLICY.appRef,
@@ -37,7 +43,7 @@ function fixture(purpose = "RELEASE_IMAGE_ONLY") {
       executorBlob: sha("d", 40),
     },
     run: {
-      id: "555000111",
+      id: purpose === "RELEASE_IMAGE_ONLY" ? "555000111" : "555000222",
       attempt: 1,
       event: "workflow_dispatch",
       repository: POLICY.controllerRepository,
@@ -49,55 +55,90 @@ function fixture(purpose = "RELEASE_IMAGE_ONLY") {
       triggeringActorId: POLICY.reviewerId,
       pullRequestCount: 0,
     },
-    nativeApproval: {
-      state: "approved",
-      reviewer: POLICY.reviewer,
-      reviewerId: POLICY.reviewerId,
-      environment: purposePolicy.environment,
-      approvalCount: 1,
-      canAdminsBypass: false,
-      preventSelfReview: false,
-    },
     secretNames: [...purposePolicy.secrets],
     image: purpose === "RELEASE_IMAGE_ONLY" ? null : {
-      reference: `ghcr.io/ronmel71/hfs-selger-app@sha256:${sha("e")}`,
-      digest: `sha256:${sha("e")}`,
-      publicationRunId: "555000000",
-      publicationControllerHead: sha("f", 40),
-      publicationWorkflowBlob: sha("1", 40),
-      publicationRequestId: sha("2"),
+      reference: `ghcr.io/ronmel71/hfs-selger-app@sha256:${sha("9")}`,
+      digest: `sha256:${sha("9")}`,
+      publicationRunId: "555000111",
+      publicationControllerHead: sha("e", 40),
+      publicationWorkflowBlob: sha("f", 40),
+      publicationRequestId: sha("8"),
     },
-  };
-  return finalizeRequest(request);
+  });
 }
 
 function options(request) {
   return {
     nowEpoch: now,
-    inventory: [{ requestId: request.requestId, nonce: request.nonce, purpose: request.purpose, runId: request.run.id, attempt: 1 }],
+    inventory: [{
+      requestId: request.requestId,
+      nonce: request.nonce,
+      purpose: request.purpose,
+      runId: request.run.id,
+      attempt: 1,
+    }],
   };
 }
 
 function resign(request) {
-  request.requestId = sha("0");
   return finalizeRequest(request);
 }
 
-describe("public release controller contract", () => {
-  it("accepts distinct exact image and deploy bindings", () => {
+function nativeEvidence(request, environmentId = 123456789) {
+  const name = POLICY.purposes[request.purpose].environment;
+  return {
+    expectedEnvironmentId: environmentId,
+    nowEpoch: now,
+    run: {
+      id: Number(request.run.id),
+      run_attempt: 1,
+      event: "workflow_dispatch",
+      head_branch: "main",
+      head_sha: request.controller.head,
+      repository: { full_name: POLICY.controllerRepository },
+      status: "completed",
+      created_at: new Date((now - 100) * 1000).toISOString(),
+      updated_at: new Date((now - 10) * 1000).toISOString(),
+    },
+    approvals: [{
+      state: "approved",
+      user: { login: POLICY.reviewer, id: POLICY.reviewerId },
+      environments: [{ name, id: environmentId }],
+      submitted_at: new Date((now - 60) * 1000).toISOString(),
+    }],
+    environment: {
+      id: environmentId,
+      name,
+      can_admins_bypass: false,
+      protection_rules: [
+        {
+          type: "required_reviewers",
+          prevent_self_review: false,
+          reviewers: [{ type: "User", reviewer: { login: POLICY.reviewer, id: POLICY.reviewerId } }],
+        },
+        { type: "branch_policy" },
+      ],
+      deployment_branch_policy: { protected_branches: true, custom_branch_policies: false },
+    },
+    branchProtection: {
+      enforce_admins: { enabled: true },
+      allow_force_pushes: { enabled: false },
+      allow_deletions: { enabled: false },
+    },
+  };
+}
+
+describe("release controller request contract", () => {
+  it("accepts separate image and deploy requests without pre-claiming native approval", () => {
     for (const purpose of ["RELEASE_IMAGE_ONLY", "RELEASE_DEPLOY_ONLY"]) {
       const request = fixture(purpose);
-      assert.deepEqual(validateRequest(request, options(request)), {
-        purpose,
-        requestId: request.requestId,
-        appCommit: POLICY.appCommit,
-      });
+      assert.equal("nativeApproval" in request, false);
+      assert.equal(validateRequest(request, options(request)).purpose, purpose);
     }
   });
 
   for (const [name, purpose, mutate, code] of [
-    ["wrong app repository", "RELEASE_IMAGE_ONLY", (r) => { r.app.repository = "attacker/fork"; }, "CONTRACT_APP_PIN"],
-    ["wrong app ref", "RELEASE_IMAGE_ONLY", (r) => { r.app.ref = "refs/heads/main"; }, "CONTRACT_APP_PIN"],
+    ["wrong repository", "RELEASE_IMAGE_ONLY", (r) => { r.app.repository = "attacker/fork"; }, "CONTRACT_APP_PIN"],
     ["wrong app commit", "RELEASE_IMAGE_ONLY", (r) => { r.app.commit = sha("3", 40); }, "CONTRACT_APP_PIN"],
     ["wrong app tree", "RELEASE_IMAGE_ONLY", (r) => { r.app.tree = sha("3", 40); }, "CONTRACT_APP_PIN"],
     ["wrong app workflow blob", "RELEASE_IMAGE_ONLY", (r) => { r.app.workflowBlob = sha("3", 40); }, "CONTRACT_APP_PIN"],
@@ -108,12 +149,6 @@ describe("public release controller contract", () => {
     ["attempt two", "RELEASE_IMAGE_ONLY", (r) => { r.run.attempt = 2; }, "CONTRACT_RUN"],
     ["third-party actor", "RELEASE_IMAGE_ONLY", (r) => { r.run.actor = "attacker"; }, "CONTRACT_RUN"],
     ["fork pull request", "RELEASE_IMAGE_ONLY", (r) => { r.run.pullRequestCount = 1; }, "CONTRACT_RUN"],
-    ["wrong reviewer", "RELEASE_IMAGE_ONLY", (r) => { r.nativeApproval.reviewer = "attacker"; }, "CONTRACT_NATIVE_APPROVAL"],
-    ["missing approval", "RELEASE_IMAGE_ONLY", (r) => { r.nativeApproval.state = "pending"; }, "CONTRACT_NATIVE_APPROVAL"],
-    ["duplicate approvals", "RELEASE_IMAGE_ONLY", (r) => { r.nativeApproval.approvalCount = 2; }, "CONTRACT_NATIVE_APPROVAL"],
-    ["admin bypass on", "RELEASE_IMAGE_ONLY", (r) => { r.nativeApproval.canAdminsBypass = true; }, "CONTRACT_NATIVE_APPROVAL"],
-    ["self-review prevention deadlock", "RELEASE_IMAGE_ONLY", (r) => { r.nativeApproval.preventSelfReview = true; }, "CONTRACT_NATIVE_APPROVAL"],
-    ["wrong protected environment", "RELEASE_DEPLOY_ONLY", (r) => { r.nativeApproval.environment = "production-image-publication"; }, "CONTRACT_NATIVE_APPROVAL"],
     ["wrong image purpose", "RELEASE_IMAGE_ONLY", (r) => { r.approvalPurpose = "APPROVE_DEPLOY"; }, "CONTRACT_PURPOSE"],
     ["stale request", "RELEASE_IMAGE_ONLY", (r) => { r.createdAtEpoch = now - 1_801; r.expiresAtEpoch = now + 1; }, "CONTRACT_FRESHNESS"],
     ["expired request", "RELEASE_DEPLOY_ONLY", (r) => { r.expiresAtEpoch = now; }, "CONTRACT_FRESHNESS"],
@@ -124,7 +159,7 @@ describe("public release controller contract", () => {
     ["mismatched digest", "RELEASE_DEPLOY_ONLY", (r) => { r.image.digest = `sha256:${sha("3")}`; }, "CONTRACT_IMAGE_BINDING"],
     ["wrong publication run", "RELEASE_DEPLOY_ONLY", (r) => { r.image.publicationRunId = "latest"; }, "CONTRACT_IMAGE_BINDING"],
     ["shell metacharacter in nonce", "RELEASE_DEPLOY_ONLY", (r) => { r.nonce = `${sha("a", 63)};`; }, "CONTRACT_IDENTIFIER"],
-    ["unexpected URL field", "RELEASE_IMAGE_ONLY", (r) => { r.callbackUrl = "http://169.254.169.254"; }, "CONTRACT_FIELDS"],
+    ["unexpected native approval", "RELEASE_IMAGE_ONLY", (r) => { r.nativeApproval = { state: "approved" }; }, "CONTRACT_FIELDS"],
   ]) {
     it(`rejects ${name}`, () => {
       const request = fixture(purpose);
@@ -134,12 +169,8 @@ describe("public release controller contract", () => {
     });
   }
 
-  it("rejects a changed request, duplicate consumer, rerun consumer, and missing consumer", () => {
-    let request = fixture();
-    request.app.commit = sha("4", 40);
-    assert.throws(() => validateRequest(request, options(request)), /CONTRACT_APP_PIN|CONTRACT_REQUEST_ID/);
-
-    request = fixture();
+  it("rejects duplicate, rerun, and missing consumers", () => {
+    const request = fixture();
     const exact = options(request).inventory[0];
     assert.throws(() => validateRequest(request, { nowEpoch: now, inventory: [exact, { ...exact, runId: "555000999" }] }), /CONTRACT_REPLAY/);
     assert.throws(() => validateRequest(request, { nowEpoch: now, inventory: [{ ...exact, attempt: 2 }] }), /CONTRACT_REPLAY/);
@@ -152,4 +183,33 @@ describe("public release controller contract", () => {
     assert.equal(validatePublishedImage(request, reference), `sha256:${sha("9")}`);
     assert.throws(() => validatePublishedImage(request, "ghcr.io/ronmel71/hfs-selger-app:latest"), /CONTRACT_PUBLISHED_DIGEST/);
   });
+});
+
+describe("post-gate native approval evidence", () => {
+  it("accepts one fresh exact reviewer and protected environment", () => {
+    const request = fixture();
+    assert.equal(validateNativeApprovalEvidence(request, nativeEvidence(request)).reviewerId, POLICY.reviewerId);
+  });
+
+  for (const [name, mutate, code] of [
+    ["unconfigured environment ID", (e) => { e.expectedEnvironmentId = null; }, "NATIVE_ENVIRONMENT_ID_UNCONFIGURED"],
+    ["missing approval", (e) => { e.approvals = []; }, "NATIVE_APPROVAL_COUNT"],
+    ["extra approval", (e) => { e.approvals.push(structuredClone(e.approvals[0])); }, "NATIVE_APPROVAL_COUNT"],
+    ["extra required reviewer", (e) => { e.environment.protection_rules[0].reviewers.push({ type: "User", reviewer: { login: "attacker", id: 7 } }); }, "NATIVE_REVIEW_POLICY"],
+    ["other reviewer", (e) => { e.approvals[0].user.login = "attacker"; }, "NATIVE_APPROVAL"],
+    ["wrong environment", (e) => { e.approvals[0].environments[0].name = "production-host-deployment"; }, "NATIVE_APPROVAL"],
+    ["wrong environment ID", (e) => { e.approvals[0].environments[0].id += 1; }, "NATIVE_APPROVAL"],
+    ["admin bypass", (e) => { e.environment.can_admins_bypass = true; }, "NATIVE_ENVIRONMENT"],
+    ["self-review deadlock", (e) => { e.environment.protection_rules[0].prevent_self_review = true; }, "NATIVE_REVIEW_POLICY"],
+    ["missing timestamp capability", (e) => { delete e.approvals[0].submitted_at; }, "NATIVE_APPROVAL_TIMESTAMP_UNAVAILABLE"],
+    ["expired approval", (e) => { e.approvals[0].submitted_at = new Date((now + 601) * 1000).toISOString(); }, "NATIVE_APPROVAL_FRESHNESS"],
+    ["unprotected main", (e) => { e.branchProtection.enforce_admins.enabled = false; }, "NATIVE_MAIN_PROTECTION"],
+  ]) {
+    it(`rejects ${name}`, () => {
+      const request = fixture();
+      const evidence = nativeEvidence(request);
+      mutate(evidence);
+      assert.throws(() => validateNativeApprovalEvidence(request, evidence), new RegExp(code));
+    });
+  }
 });

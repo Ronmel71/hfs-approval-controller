@@ -33,10 +33,17 @@ describe("dormant controller workflows", () => {
     assert.ok(deployJob.indexOf("environment:") < deployJob.indexOf("secrets."));
     assert.doesNotMatch(image.slice(0, image.indexOf("  release-image-only:")), /secrets\./);
     assert.doesNotMatch(deploy.slice(0, deploy.indexOf("  release-deploy-only:")), /secrets\./);
-    assert.match(image.slice(0, image.indexOf("  release-image-only:")), /node scripts\/release-controller-preflight\.mjs/);
-    assert.match(deploy.slice(0, deploy.indexOf("  release-deploy-only:")), /node scripts\/release-controller-preflight\.mjs/);
-    assert.match(preflightScript, /redirect: "error"/);
+    assert.match(image.slice(0, image.indexOf("  release-image-only:")), /node scripts\/release-controller-preflight\.mjs validate-request/);
+    assert.match(deploy.slice(0, deploy.indexOf("  release-deploy-only:")), /node scripts\/release-controller-preflight\.mjs validate-request/);
+    assert.ok(imageJob.indexOf("verify-native-approval") < imageJob.indexOf("secrets."));
+    assert.ok(deployJob.indexOf("verify-native-approval") < deployJob.indexOf("secrets."));
+    assert.doesNotMatch(image.slice(0, image.indexOf("  release-image-only:")), /verify-native-approval|NATIVE_APPROVED/);
+    assert.doesNotMatch(deploy.slice(0, deploy.indexOf("  release-deploy-only:")), /verify-native-approval|NATIVE_APPROVED/);
+    assert.match(preflightScript, /redirect: binary \? "follow" : "error"/);
     assert.match(preflightScript, /\/actions\/runs\?event=workflow_dispatch&branch=main&per_page=100&page=/);
+    assert.match(preflightScript, /\/actions\/runs\/\$\{run\.id\}\/approvals/);
+    assert.match(preflightScript, /\/environments\/\$\{encodeURIComponent\(purposePolicy\.environment\)\}/);
+    assert.match(preflightScript, /PROVENANCE_NOT_VERIFIED/);
     assert.doesNotMatch(preflightScript, /method:\s*"(?:POST|PUT|PATCH|DELETE)"/);
   });
 
@@ -57,9 +64,13 @@ describe("dormant controller workflows", () => {
     }
     assert.match(imageScript, /docker buildx imagetools inspect/);
     assert.match(imageScript, /ghcr\.io\/ronmel71\/hfs-selger-app@\$reference/);
+    assert.match(image, /actions\/upload-artifact@[0-9a-f]{40}/);
+    assert.match(image, /hfs-release-image-provenance/);
+    assert.match(imageScript, /hfs\.public-release-image-provenance\/v1/);
     assert.match(deploy, /publication_run_id/);
     assert.match(deploy, /publication_controller_head/);
     assert.match(deploy, /publication_workflow_blob/);
+    assert.match(deploy, /run-name:.*publication \$\{\{ inputs\.publication_run_id \}\}/);
   });
 
   it("uses hook-free WireGuard, strict no-agent SSH, no-clobber staging, and only the narrow helper", () => {

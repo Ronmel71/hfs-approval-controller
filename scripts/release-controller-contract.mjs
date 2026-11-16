@@ -4,6 +4,9 @@ import { pathToFileURL } from "node:url";
 
 export const POLICY = Object.freeze({
   schema: "hfs.public-release-controller/v1",
+  provenanceSchema: "hfs.public-release-image-provenance/v1",
+  provenanceArtifactName: "hfs-release-image-provenance",
+  provenanceArtifactFile: "hfs-release-image-provenance.json",
   appRepository: "Ronmel71/hfs-selger-app",
   appRef: "refs/heads/staging",
   appCommit: "798ada90d2b6461a59d4b495ca3798b110b1a2e6",
@@ -25,6 +28,8 @@ export const POLICY = Object.freeze({
       workflow: ".github/workflows/release-image-only.yml",
       executor: "scripts/release-image-only.sh",
       environment: "production-image-publication",
+      // Pin the real numeric ID only in a separately reviewed activation change.
+      environmentId: null,
       secrets: Object.freeze(["HFS_GHCR_PUBLISH_TOKEN", "HFS_PRIVATE_SOURCE_READ_TOKEN"]),
     }),
     RELEASE_DEPLOY_ONLY: Object.freeze({
@@ -32,6 +37,8 @@ export const POLICY = Object.freeze({
       workflow: ".github/workflows/release-deploy-only.yml",
       executor: "scripts/release-deploy-only.sh",
       environment: "production-host-deployment",
+      // Pin the real numeric ID only in a separately reviewed activation change.
+      environmentId: null,
       secrets: Object.freeze([
         "DEPLOY_SSH_KEY",
         "DEPLOY_SSH_KNOWN_HOSTS",
@@ -69,10 +76,15 @@ function stable(value) {
   return JSON.stringify(value);
 }
 
+function epoch(value, code) {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) refuse(code);
+  return Math.floor(parsed / 1000);
+}
+
 function requestBinding(request) {
-  // The dispatch run ID does not exist until GitHub accepts the dispatch, so it
-  // cannot be part of the caller-computed request ID. It is still mandatory and
-  // independently bound by the exact run provenance and single-consumer checks.
+  // GitHub assigns the run ID after dispatch. Native approval is deliberately
+  // absent: pre-gate validation must never claim that review already happened.
   const binding = {
     schema: request.schema,
     purpose: request.purpose,
@@ -94,22 +106,12 @@ function validatePins(request, purposePolicy) {
       request.app.commit !== POLICY.appCommit || request.app.tree !== POLICY.appTree ||
       request.app.workflow !== POLICY.appWorkflow || request.app.workflowBlob !== POLICY.appWorkflowBlob ||
       request.app.composeBlob !== POLICY.composeBlob || request.app.caddyBlob !== POLICY.caddyBlob ||
-      request.app.helperBlob !== POLICY.helperBlob || request.app.sudoersBlob !== POLICY.sudoersBlob) {
-    refuse("CONTRACT_APP_PIN");
-  }
+      request.app.helperBlob !== POLICY.helperBlob || request.app.sudoersBlob !== POLICY.sudoersBlob) refuse("CONTRACT_APP_PIN");
   exactKeys(request.controller, ["repository", "ref", "head", "workflow", "workflowBlob", "executor", "executorBlob"], "CONTRACT_CONTROLLER_FIELDS");
   if (request.controller.repository !== POLICY.controllerRepository || request.controller.ref !== POLICY.controllerRef ||
       request.controller.workflow !== purposePolicy.workflow || request.controller.executor !== purposePolicy.executor ||
       !SHA40.test(request.controller.head) || !SHA40.test(request.controller.workflowBlob) ||
       !SHA40.test(request.controller.executorBlob)) refuse("CONTRACT_CONTROLLER_PIN");
-}
-
-function validateNativeApproval(request, purposePolicy) {
-  exactKeys(request.nativeApproval, ["state", "reviewer", "reviewerId", "environment", "approvalCount", "canAdminsBypass", "preventSelfReview"], "CONTRACT_APPROVAL_FIELDS");
-  if (request.nativeApproval.state !== "approved" || request.nativeApproval.reviewer !== POLICY.reviewer ||
-      request.nativeApproval.reviewerId !== POLICY.reviewerId || request.nativeApproval.environment !== purposePolicy.environment ||
-      request.nativeApproval.approvalCount !== 1 || request.nativeApproval.canAdminsBypass !== false ||
-      request.nativeApproval.preventSelfReview !== false) refuse("CONTRACT_NATIVE_APPROVAL");
 }
 
 function validateRun(request) {
@@ -129,9 +131,7 @@ function validateFreshness(request, nowEpoch) {
 
 function validateSecrets(request, purposePolicy) {
   if (!Array.isArray(request.secretNames) || request.secretNames.some((name) => typeof name !== "string") ||
-      JSON.stringify([...request.secretNames].sort()) !== JSON.stringify([...purposePolicy.secrets].sort())) {
-    refuse("CONTRACT_SECRET_SCOPE");
-  }
+      JSON.stringify([...request.secretNames].sort()) !== JSON.stringify([...purposePolicy.secrets].sort())) refuse("CONTRACT_SECRET_SCOPE");
 }
 
 function validateImageBinding(request) {
@@ -143,36 +143,72 @@ function validateDeployBinding(request) {
   if (!IMAGE.test(request.image.reference) || !DIGEST.test(request.image.digest) ||
       request.image.reference !== `ghcr.io/ronmel71/hfs-selger-app@${request.image.digest}` ||
       !RUN_ID.test(String(request.image.publicationRunId)) || !SHA40.test(request.image.publicationControllerHead) ||
-      !SHA40.test(request.image.publicationWorkflowBlob) || !SHA64.test(request.image.publicationRequestId)) {
-    refuse("CONTRACT_IMAGE_BINDING");
-  }
+      !SHA40.test(request.image.publicationWorkflowBlob) || !SHA64.test(request.image.publicationRequestId)) refuse("CONTRACT_IMAGE_BINDING");
 }
 
 export function validateRequest(request, { nowEpoch = Math.floor(Date.now() / 1000), inventory = [] } = {}) {
-  exactKeys(request, ["schema", "purpose", "approvalPurpose", "requestId", "nonce", "createdAtEpoch", "expiresAtEpoch", "app", "controller", "run", "nativeApproval", "secretNames", "image"], "CONTRACT_FIELDS");
+  exactKeys(request, ["schema", "purpose", "approvalPurpose", "requestId", "nonce", "createdAtEpoch", "expiresAtEpoch", "app", "controller", "run", "secretNames", "image"], "CONTRACT_FIELDS");
   const purposePolicy = POLICY.purposes[request.purpose];
   if (!purposePolicy || request.schema !== POLICY.schema || request.approvalPurpose !== purposePolicy.approvalPurpose) refuse("CONTRACT_PURPOSE");
   if (!SHA64.test(request.nonce) || !SHA64.test(request.requestId)) refuse("CONTRACT_IDENTIFIER");
   validatePins(request, purposePolicy);
   validateRun(request);
-  validateNativeApproval(request, purposePolicy);
   validateFreshness(request, nowEpoch);
   validateSecrets(request, purposePolicy);
   if (request.purpose === "RELEASE_IMAGE_ONLY") validateImageBinding(request);
   else validateDeployBinding(request);
   if (request.requestId !== requestBinding(request)) refuse("CONTRACT_REQUEST_ID");
-
   if (!Array.isArray(inventory)) refuse("CONTRACT_INVENTORY");
   const matching = inventory.filter((entry) => isObject(entry) && entry.requestId === request.requestId &&
     entry.nonce === request.nonce && entry.purpose === request.purpose);
-  if (matching.length !== 1 || String(matching[0].runId) !== String(request.run.id) || matching[0].attempt !== 1) {
-    refuse("CONTRACT_REPLAY");
-  }
+  if (matching.length !== 1 || String(matching[0].runId) !== String(request.run.id) || matching[0].attempt !== 1) refuse("CONTRACT_REPLAY");
   return Object.freeze({ purpose: request.purpose, requestId: request.requestId, appCommit: request.app.commit });
+}
+
+export function validateNativeApprovalEvidence(request, {
+  run,
+  approvals,
+  environment,
+  branchProtection,
+  expectedEnvironmentId = POLICY.purposes[request.purpose]?.environmentId,
+  nowEpoch = Math.floor(Date.now() / 1000),
+  allowHistorical = false,
+} = {}) {
+  const purposePolicy = POLICY.purposes[request.purpose] || refuse("NATIVE_PURPOSE");
+  if (!Number.isSafeInteger(expectedEnvironmentId)) refuse("NATIVE_ENVIRONMENT_ID_UNCONFIGURED");
+  if (!isObject(run) || String(run.id) !== String(request.run.id) || run.run_attempt !== 1 ||
+      run.event !== "workflow_dispatch" || run.head_branch !== "main" || run.head_sha !== request.controller.head ||
+      run.repository?.full_name !== POLICY.controllerRepository ||
+      (run.status !== "in_progress" && run.status !== "completed")) refuse("NATIVE_RUN");
+  const runCreated = epoch(run.created_at, "NATIVE_RUN_TIMESTAMP");
+  if (runCreated < request.createdAtEpoch || runCreated >= request.expiresAtEpoch || runCreated > nowEpoch) refuse("NATIVE_RUN_TIMESTAMP");
+  if (!Array.isArray(approvals) || approvals.length !== 1) refuse("NATIVE_APPROVAL_COUNT");
+  const approval = approvals[0];
+  if (!isObject(approval) || approval.state !== "approved" || approval.user?.login !== POLICY.reviewer ||
+      approval.user?.id !== POLICY.reviewerId || !Array.isArray(approval.environments) || approval.environments.length !== 1 ||
+      approval.environments[0]?.name !== purposePolicy.environment || approval.environments[0]?.id !== expectedEnvironmentId) refuse("NATIVE_APPROVAL");
+  const approvalAt = epoch(approval.submitted_at ?? approval.created_at, "NATIVE_APPROVAL_TIMESTAMP_UNAVAILABLE");
+  if (approvalAt < runCreated || approvalAt < request.createdAtEpoch || approvalAt >= request.expiresAtEpoch || approvalAt > nowEpoch) refuse("NATIVE_APPROVAL_FRESHNESS");
+  if (run.status === "completed" && approvalAt > epoch(run.updated_at, "NATIVE_RUN_TIMESTAMP")) refuse("NATIVE_APPROVAL_FRESHNESS");
+  if (!allowHistorical && request.expiresAtEpoch <= nowEpoch) refuse("NATIVE_APPROVAL_FRESHNESS");
+  if (!isObject(environment) || environment.name !== purposePolicy.environment || environment.id !== expectedEnvironmentId ||
+      environment.can_admins_bypass !== false || !Array.isArray(environment.protection_rules)) refuse("NATIVE_ENVIRONMENT");
+  const reviewerRules = environment.protection_rules.filter((rule) => rule?.type === "required_reviewers");
+  const branchRules = environment.protection_rules.filter((rule) => rule?.type === "branch_policy");
+  if (reviewerRules.length !== 1 || branchRules.length !== 1 || reviewerRules[0].prevent_self_review !== false ||
+      !Array.isArray(reviewerRules[0].reviewers) || reviewerRules[0].reviewers.length !== 1 ||
+      reviewerRules[0].reviewers[0]?.type !== "User" || reviewerRules[0].reviewers[0]?.reviewer?.login !== POLICY.reviewer ||
+      reviewerRules[0].reviewers[0]?.reviewer?.id !== POLICY.reviewerId) refuse("NATIVE_REVIEW_POLICY");
+  if (environment.deployment_branch_policy?.protected_branches !== true ||
+      environment.deployment_branch_policy?.custom_branch_policies !== false) refuse("NATIVE_BRANCH_POLICY");
+  if (!isObject(branchProtection) || branchProtection.enforce_admins?.enabled !== true ||
+      branchProtection.allow_force_pushes?.enabled !== false || branchProtection.allow_deletions?.enabled !== false) refuse("NATIVE_MAIN_PROTECTION");
+  return Object.freeze({ environment: purposePolicy.environment, environmentId: expectedEnvironmentId, reviewerId: POLICY.reviewerId, approvedAtEpoch: approvalAt });
 }
 
 export function finalizeRequest(request) {
   const copy = structuredClone(request);
+  delete copy.nativeApproval;
   copy.requestId = requestBinding(copy);
   return copy;
 }
