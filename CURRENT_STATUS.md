@@ -1,5 +1,18 @@
 # Current status
 
+## 2026-11-16 — issue #428 dormant public-controller image and deploy gates
+
+- Branch `feat/issue-428-public-release-controller` is based on exact protected controller `main` commit `b379829c3fbcb87df9b70e1fb82f50296373cc6a`. The existing verified `stage-only-review.yml` blob remains byte-for-byte `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.
+- Adds distinct `PREPARE_IMAGE` → `RELEASE_IMAGE_ONLY` and `APPROVE_DEPLOY` → `RELEASE_DEPLOY_ONLY` contracts. They bind exact private app staging commit `798ada90d2b6461a59d4b495ca3798b110b1a2e6`, tree and workflow/deployment/helper blobs; exact controller head/workflow/executor blobs; first attempt; Ronny actor/reviewer; one protected native approval; bypass off; self-review prevention off; a fresh nonce; maximum 30-minute expiry; one consumer; and, for deploy, the exact image approval run plus immutable GHCR digest.
+- Both credential/artifact-producing controller jobs remain literal `if: ${{ false }}` behind separate future public-controller environments. Image secrets are limited to private-source read plus GHCR publish. Deploy secrets are limited to private-source read plus the five WireGuard/SSH host names. No private-app environment or repository receives host credentials.
+- The dormant deploy executor permits only hook-free `10.77.0.2/32` WireGuard, pinned no-agent SSH to `hfsdeploy@10.77.0.1`, exact no-clobber Compose/Caddy staging, and `sudo -n /usr/local/sbin/hfs-deploy-release`. The pinned helper retains locked state, immutable RepoDigest/email-off preflight, health validation, cleanup, and automatic rollback.
+- Offline tests cover wrong repository/ref/SHA/tree/workflow/helper/controller pins, wrong purpose/reviewer/actor/environment policy, bypass, self-review deadlock, duplicate/replay/rerun/stale requests, under/overprivileged secret sets, unknown/mismatched digest, shell/SSRF-shaped input, secret release ordering, hard-disabled jobs, immutable digest readback, strict transport, and unchanged verified controller gate. The exact pinned private app workflow is separately read from Git and proves both private release jobs remain literal-disabled.
+- No workflow was dispatched, no controller/main direct push or merge occurred, and no environment/reviewer/secret/variable/branch policy, GHCR image, host/WireGuard/SSH/helper, Supabase, email, customer, quote, production data, or deployment state was touched. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review the controller-only PR. Any merge, private-app controller repin, public environment creation/attestation, secret migration, helper installation/readback, job activation, image publication, and deploy are separate exact-SHA-authorized tasks. The privileged jobs must remain disabled through this review and merge.
+
 ## 2026-11-09 — dedicated connectivity-only native approval (code review)
 
 - Adds a separate manual, first-attempt `main` workflow for one opaque 64-hex request, using the existing protected `production-first-start` environment. It validates the request before native review and emits only a harmless connectivity approval marker afterward.
@@ -73,4 +86,3 @@ Review the exact controller and private app PR heads together. A green CI result
 ### Next gate
 
 Review and merge the single controller PR as a code-only change. Even after merge, publication remains disabled. Any later activation requires a separate SHA-specific review and provisioning decision; the private consumer must remain unpinned until the real controller workflow ID is known and separately reviewed.
-

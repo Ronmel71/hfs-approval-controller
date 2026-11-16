@@ -2,6 +2,16 @@
 
 This public repository contains only the minimal native-review control plane. It does not contain application source, provider records, private release contents, or signing keys. The dormant install-only material candidate contains only the operational identifiers that its five-file public contract already classifies as nonsecret.
 
+## Dormant two-purpose release controller candidate
+
+`release-image-only.yml` and `release-deploy-only.yml` move the candidate credential boundary out of the private app repository and into two distinct public-controller environments. They are code-only: both credential/artifact-producing jobs are literal-disabled with `if: ${{ false }}`. Merging the files cannot publish an image, connect to the host, or deploy. The existing verified `stage-only-review.yml` gate is byte-for-byte unchanged.
+
+The image request binds `PREPARE_IMAGE` to `RELEASE_IMAGE_ONLY`; the deploy request separately binds `APPROVE_DEPLOY` to `RELEASE_DEPLOY_ONLY`. The shared fail-closed contract pins the private repository, staging ref, commit, source tree, app workflow blob, deployment-file/helper blobs, exact controller head/workflow/executor blobs, first run attempt, Ronny actor/reviewer identity, one native approval, distinct environment, bypass off, self-review prevention off, fresh nonce, maximum 30-minute lifetime, and exactly one consuming run. Deploy additionally binds the exact approved publication run, image-controller SHA/workflow blob/request, and full immutable GHCR digest. Exact secret-name sets reject both missing and excess authority.
+
+The future image executor checks out only the pinned private SHA with a read-only source credential, builds once, publishes with a separate GHCR credential, and reads back a full `sha256` digest. The future deploy executor checks out the same exact SHA only after its separate native environment gate, validates the Compose/Caddy/helper/sudoers blobs, accepts only `hfsdeploy@10.77.0.1` over hook-free WireGuard `10.77.0.2/32`, uses pinned known-hosts with `BatchMode`, `IdentitiesOnly`, and no SSH agent, stages files no-clobber, and invokes only `sudo -n /usr/local/sbin/hfs-deploy-release`. The pinned root helper remains responsible for locked state, RepoDigest/email-off preflight, health checks, and automatic rollback.
+
+No controller environment, reviewer, secret, variable, or branch policy is created here. A later configuration task must first prove two distinct public environments have Ronny as required reviewer, prevent-self-review disabled (so the sole triggerer/reviewer does not deadlock), admin bypass disabled, and protected `main` only. A later exact-SHA code task is still required to remove each literal stop-gate. The private app jobs remain disabled and must be repinned to the final merged controller head/workflow blobs in a separate SHA-authorized app PR; wildcard, branch-only, and latest-controller trust are forbidden.
+
 ## Protected readback credential preflight
 
 `protected-credential-preflight.yml` is a manual, native-review-protected read-only preflight. It is code-only until a later, explicit approval authorizes one exact merged controller SHA for dispatch. The preflight grants no install or start authority and never signs, publishes, delivers an envelope, creates an artifact, or writes to an issue.

@@ -1,0 +1,160 @@
+name: Release deploy only (dormant controller candidate)
+run-name: Release deploy only · RELEASE_DEPLOY_ONLY · ${{ inputs.request_id }} · ${{ inputs.nonce }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Canonical 64-hex APPROVE_DEPLOY request binding
+        required: true
+        type: string
+      nonce:
+        description: Fresh one-use 64-hex deploy nonce
+        required: true
+        type: string
+      created_at_epoch:
+        description: Request creation epoch
+        required: true
+        type: string
+      expires_at_epoch:
+        description: Expiry no later than 30 minutes after creation
+        required: true
+        type: string
+      image_reference:
+        description: Exact immutable GHCR reference from approved image run
+        required: true
+        type: string
+      publication_run_id:
+        description: Exact first-attempt controller image publication run
+        required: true
+        type: string
+      publication_request_id:
+        description: Exact PREPARE_IMAGE request binding
+        required: true
+        type: string
+      publication_controller_head:
+        description: Exact controller head used by image publication
+        required: true
+        type: string
+      publication_workflow_blob:
+        description: Exact release-image-only workflow blob used by publication
+        required: true
+        type: string
+      controller_head:
+        description: Exact reviewed controller main SHA for deploy
+        required: true
+        type: string
+      controller_workflow_blob:
+        description: Exact blob of this workflow at controller_head
+        required: true
+        type: string
+      controller_executor_blob:
+        description: Exact release-deploy-only.sh blob at controller_head
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-deploy-only-${{ inputs.request_id }}-${{ inputs.nonce }}
+  cancel-in-progress: false
+
+jobs:
+  validate-request:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact public controller source without retained credential
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate immutable deploy, publication, controller, and app pins
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          NONCE: ${{ inputs.nonce }}
+          CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          IMAGE_REFERENCE: ${{ inputs.image_reference }}
+          PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
+          PUBLICATION_REQUEST_ID: ${{ inputs.publication_request_id }}
+          PUBLICATION_CONTROLLER_HEAD: ${{ inputs.publication_controller_head }}
+          PUBLICATION_WORKFLOW_BLOB: ${{ inputs.publication_workflow_blob }}
+          CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+          GH_TOKEN: ${{ github.token }}
+          HFS_RELEASE_PURPOSE: RELEASE_DEPLOY_ONLY
+          HFS_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_NONCE: ${{ inputs.nonce }}
+          HFS_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+          HFS_IMAGE_REFERENCE: ${{ inputs.image_reference }}
+          HFS_PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
+          HFS_PUBLICATION_REQUEST_ID: ${{ inputs.publication_request_id }}
+          HFS_PUBLICATION_CONTROLLER_HEAD: ${{ inputs.publication_controller_head }}
+          HFS_PUBLICATION_WORKFLOW_BLOB: ${{ inputs.publication_workflow_blob }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$NONCE" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$CREATED_AT_EPOCH" =~ ^[0-9]{10}$ ]]
+          [[ "$EXPIRES_AT_EPOCH" =~ ^[0-9]{10}$ ]]
+          (( EXPIRES_AT_EPOCH > CREATED_AT_EPOCH ))
+          (( EXPIRES_AT_EPOCH - CREATED_AT_EPOCH <= 1800 ))
+          [[ "$IMAGE_REFERENCE" =~ ^ghcr\.io/ronmel71/hfs-selger-app@sha256:[0-9a-f]{64}$ ]]
+          [[ "$PUBLICATION_RUN_ID" =~ ^[1-9][0-9]{5,19}$ ]]
+          [[ "$PUBLICATION_REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$PUBLICATION_CONTROLLER_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PUBLICATION_WORKFLOW_BLOB" =~ ^[0-9a-f]{40}$ ]]
+          test "$CONTROLLER_HEAD" = "$GITHUB_SHA"
+          test "$CONTROLLER_WORKFLOW_BLOB" = "$(git rev-parse HEAD:.github/workflows/release-deploy-only.yml)"
+          test "$CONTROLLER_EXECUTOR_BLOB" = "$(git rev-parse HEAD:scripts/release-deploy-only.sh)"
+          node scripts/release-controller-preflight.mjs
+
+  release-deploy-only:
+    # Absolute stop-gate. A later exact-SHA code task may replace this only after
+    # this distinct public controller environment is independently proven protected.
+    if: ${{ false }}
+    needs: validate-request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production-host-deployment
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out exact public controller source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Check out exact private app deployment files after native environment approval
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Ronmel71/hfs-selger-app
+          ref: 798ada90d2b6461a59d4b495ca3798b110b1a2e6
+          token: ${{ secrets.HFS_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: private-app
+      - name: Install WireGuard client only inside the gated runner
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install --yes wireguard-tools >/dev/null
+      - name: Stage exact files and invoke only the narrow root helper
+        working-directory: private-app
+        env:
+          DEPLOY_WIREGUARD_CONFIG: ${{ secrets.DEPLOY_WIREGUARD_CONFIG }}
+          DEPLOY_WIREGUARD_HOST: ${{ secrets.DEPLOY_WIREGUARD_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          HFS_IMAGE_REFERENCE: ${{ inputs.image_reference }}
+          HFS_PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
+          HFS_APP_COMMIT: 798ada90d2b6461a59d4b495ca3798b110b1a2e6
+          HFS_APP_TREE: 782771cf58956453d31313756252ba073a852c5c
+        run: ../scripts/release-deploy-only.sh
