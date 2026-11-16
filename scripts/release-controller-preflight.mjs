@@ -17,14 +17,14 @@ const asEpoch = (value, code) => {
   return Math.floor(parsed / 1000);
 };
 
-async function githubResponse(path, { binary = false } = {}) {
+async function githubResponse(path, { binary = false, token, errorPrefix = "PREFLIGHT_API" } = {}) {
   let response;
   try {
     response = await fetch(`https://api.github.com/repos/${POLICY.controllerRepository}${path}`, {
       method: "GET",
       headers: {
         Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${required("GH_TOKEN")}`,
+        Authorization: `Bearer ${token ?? required("GH_TOKEN")}`,
         "User-Agent": "hfs-release-controller-preflight",
         "X-GitHub-Api-Version": "2022-11-28",
       },
@@ -32,21 +32,22 @@ async function githubResponse(path, { binary = false } = {}) {
       signal: AbortSignal.timeout(15_000),
     });
   } catch {
-    refuse("PREFLIGHT_API_NETWORK");
+    refuse(`${errorPrefix}_NETWORK`);
   }
   if (response.status !== 200) {
-    refuse([401, 403, 404, 429].includes(response.status) ? `PREFLIGHT_API_HTTP_${response.status}` : "PREFLIGHT_API_RESPONSE");
+    refuse([401, 403, 404, 429].includes(response.status) ? `${errorPrefix}_HTTP_${response.status}` : `${errorPrefix}_RESPONSE`);
   }
   return response;
 }
 
-async function getJson(path) {
-  const response = await githubResponse(path);
-  if (!response.headers.get("content-type")?.toLowerCase().includes("application/json")) refuse("PREFLIGHT_API_CONTENT_TYPE");
+async function getJson(path, options) {
+  const response = await githubResponse(path, options);
+  const errorPrefix = options?.errorPrefix ?? "PREFLIGHT_API";
+  if (!response.headers.get("content-type")?.toLowerCase().includes("application/json")) refuse(`${errorPrefix}_CONTENT_TYPE`);
   try {
     return await response.json();
   } catch {
-    refuse("PREFLIGHT_API_JSON");
+    refuse(`${errorPrefix}_JSON`);
   }
 }
 
@@ -193,10 +194,11 @@ function validateConsumerInventory(request, runs) {
 
 async function readNativeEvidence(request, run, expectedEnvironmentId, { allowHistorical = false } = {}) {
   const purposePolicy = POLICY.purposes[request.purpose];
+  const adminReadToken = process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN || refuse("PREFLIGHT_ADMIN_READ_TOKEN_UNCONFIGURED");
   const [approvals, environment, branchProtection] = await Promise.all([
     getJson(`/actions/runs/${run.id}/approvals`),
     getJson(`/environments/${encodeURIComponent(purposePolicy.environment)}`),
-    getJson("/branches/main/protection"),
+    getJson("/branches/main/protection", { token: adminReadToken, errorPrefix: "PREFLIGHT_ADMIN_READ" }),
   ]);
   return validateNativeApprovalEvidence(request, {
     run,
@@ -341,9 +343,7 @@ export async function verifyPublicationProvenance(request, runs, {
   }
 }
 
-export async function validateRequestPhase({
-  publicationEnvironmentId = POLICY.purposes.RELEASE_IMAGE_ONLY.environmentId,
-} = {}) {
+export async function validateRequestPhase() {
   const runId = required("GITHUB_RUN_ID");
   const run = await getJson(`/actions/runs/${runId}`);
   const purpose = required("HFS_RELEASE_PURPOSE");
@@ -354,13 +354,13 @@ export async function validateRequestPhase({
   if (run.display_title !== requestTitle(request)) refuse("PREFLIGHT_RUN_NAME");
   const runs = await completeInventory();
   validateConsumerInventory(request, runs);
-  if (purpose === "RELEASE_DEPLOY_ONLY") await verifyPublicationProvenance(request, runs, { expectedEnvironmentId: publicationEnvironmentId });
   process.stdout.write(`RELEASE_CONTROLLER_REQUEST_VALID purpose=${purpose} request_id=${request.requestId}\n`);
   return request;
 }
 
 export async function verifyNativeApprovalPhase({
   expectedEnvironmentId,
+  publicationEnvironmentId = POLICY.purposes.RELEASE_IMAGE_ONLY.environmentId,
 } = {}) {
   const runId = required("GITHUB_RUN_ID");
   const run = await getJson(`/actions/runs/${runId}`);
@@ -370,6 +370,11 @@ export async function verifyNativeApprovalPhase({
   const request = buildRequest(run);
   if (request.requestId !== required("HFS_REQUEST_ID") || run.display_title !== requestTitle(request)) refuse("PREFLIGHT_REQUEST_ID");
   await readNativeEvidence(request, run, expectedEnvironmentId ?? purposePolicy.environmentId);
+  if (purpose === "RELEASE_DEPLOY_ONLY") {
+    const runs = await completeInventory();
+    validateConsumerInventory(request, runs);
+    await verifyPublicationProvenance(request, runs, { expectedEnvironmentId: publicationEnvironmentId });
+  }
   process.stdout.write(`RELEASE_CONTROLLER_NATIVE_APPROVAL_VERIFIED purpose=${purpose} request_id=${request.requestId}\n`);
   return request;
 }

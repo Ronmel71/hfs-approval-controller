@@ -136,6 +136,7 @@ jobs:
       - name: Re-read distinct native deploy approval and environment policy before credentials
         env:
           GH_TOKEN: ${{ github.token }}
+          HFS_CONTROLLER_ADMIN_READ_TOKEN: ${{ secrets.HFS_CONTROLLER_ADMIN_READ_TOKEN }}
           HFS_RELEASE_PURPOSE: RELEASE_DEPLOY_ONLY
           HFS_REQUEST_ID: ${{ inputs.request_id }}
           HFS_NONCE: ${{ inputs.nonce }}

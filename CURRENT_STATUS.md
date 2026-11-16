@@ -1,5 +1,17 @@
 # Current status
 
+## 2026-11-16 — issue #430 branch-protection readback capability correction
+
+- Existing controller PR #13 and branch `feat/issue-428-public-release-controller` were updated in place; no replacement branch or PR was created. The issue-pinned head/base matched before editing, and the verified `stage-only-review.yml` blob remains `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.
+- Capability readback confirmed that public `/branches/main` exposes only a weak `protected: true`; public `/rulesets` and `/rules/branches/main` are empty for the controller's classic protection. None can prove enforce-admins ON plus force-push/deletion OFF. Exact `/branches/main/protection` remains the necessary evidence and requires Administration read.
+- Native approval/environment reads retain the ordinary job `GITHUB_TOKEN` with `actions: read`. Branch-protection readback now requires only a distinct environment-scoped `HFS_CONTROLLER_ADMIN_READ_TOKEN`; missing credentials and provider 403 responses have distinct fail-closed results. Workflow permissions were not expanded and no credential, environment, reviewer, secret, variable, or policy was created or changed.
+- Deploy's historical image-run native approval, exact image source blobs, and retained ZIP/digest provenance are now verified inside the credentialed deploy job after its native environment pause and before private checkout, host credentials, or the executor. The pre-gate job remains credential-free and only validates immutable request/run bindings and complete anti-replay inventory.
+- Offline coverage includes provider 200, missing admin-read credential, provider 403, unsupported `administration` workflow permission, changed enforce-admin/force-push/deletion policy, and rejection of weaker public alternatives. Both privileged controller jobs and both private-app jobs remain literal-disabled. No dispatch/rerun, GHCR, host/WireGuard/SSH, private-app change, merge, or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Activation remains blocked until a separately approved task provisions and live-proves one controller-repository-scoped GitHub App or fine-grained token with Administration read and no Administration write as the protected environment secret `HFS_CONTROLLER_ADMIN_READ_TOKEN`.
+
 ## 2026-11-16 — issue #429 native approval and image provenance correction
 
 - Existing controller PR #13 and branch `feat/issue-428-public-release-controller` remain based on protected `main` `b379829c3fbcb87df9b70e1fb82f50296373cc6a`; no replacement branch or PR was created. The verified `stage-only-review.yml` blob remains byte-for-byte `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.

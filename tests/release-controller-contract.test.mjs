@@ -204,6 +204,8 @@ describe("post-gate native approval evidence", () => {
     ["missing timestamp capability", (e) => { delete e.approvals[0].submitted_at; }, "NATIVE_APPROVAL_TIMESTAMP_UNAVAILABLE"],
     ["expired approval", (e) => { e.approvals[0].submitted_at = new Date((now + 601) * 1000).toISOString(); }, "NATIVE_APPROVAL_FRESHNESS"],
     ["unprotected main", (e) => { e.branchProtection.enforce_admins.enabled = false; }, "NATIVE_MAIN_PROTECTION"],
+    ["force pushes allowed on main", (e) => { e.branchProtection.allow_force_pushes.enabled = true; }, "NATIVE_MAIN_PROTECTION"],
+    ["deletion allowed on main", (e) => { e.branchProtection.allow_deletions.enabled = true; }, "NATIVE_MAIN_PROTECTION"],
   ]) {
     it(`rejects ${name}`, () => {
       const request = fixture();

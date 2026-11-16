@@ -167,6 +167,7 @@ function configureImage() {
 function setRequestEnvironment(request) {
   Object.assign(process.env, {
     GH_TOKEN: "synthetic-token",
+    HFS_CONTROLLER_ADMIN_READ_TOKEN: "synthetic-admin-read-token",
     GITHUB_RUN_ID: String(request.run.id),
     HFS_RELEASE_PURPOSE: request.purpose,
     HFS_REQUEST_ID: request.requestId,
@@ -219,6 +220,8 @@ function configureDeploy(mutate = () => {}) {
   const deployRun = githubRun(555000222, deployPolicy.workflow, sha("b", 40));
   deployRun.status = "in_progress";
   deployRun.conclusion = null;
+  deployRun.created_at = iso(now - 20);
+  deployRun.updated_at = iso(now - 5);
   const state = {
     imageRun,
     imageRequest,
@@ -231,6 +234,7 @@ function configureDeploy(mutate = () => {}) {
       submitted_at: iso(now - 80),
     }],
     imageEnvironment: environment(imagePolicy.environment, 101010),
+    deployEnvironmentId: 202020,
     workflowSha: imageRequest.controller.workflowBlob,
     executorSha: imageRequest.controller.executorBlob,
     artifactsMissing: false,
@@ -318,7 +322,11 @@ function installDeployFetch(state) {
     if (path.endsWith(`/actions/runs/${state.imageRun.id}`)) return jsonResponse(state.imageRun);
     if (path.includes("/actions/runs?")) return jsonResponse({ total_count: state.inventory.length, workflow_runs: state.inventory });
     if (path.endsWith(`/actions/runs/${state.imageRun.id}/approvals`)) return jsonResponse(state.approvals);
+    if (path.endsWith(`/actions/runs/${state.deployRun.id}/approvals`)) {
+      return jsonResponse([{ state: "approved", user: { login: POLICY.reviewer, id: POLICY.reviewerId }, environments: [{ name: POLICY.purposes.RELEASE_DEPLOY_ONLY.environment, id: state.deployEnvironmentId }], submitted_at: iso(now - 10) }]);
+    }
     if (path.includes(`/environments/${POLICY.purposes.RELEASE_IMAGE_ONLY.environment}`)) return jsonResponse(state.imageEnvironment);
+    if (path.includes(`/environments/${POLICY.purposes.RELEASE_DEPLOY_ONLY.environment}`)) return jsonResponse(environment(POLICY.purposes.RELEASE_DEPLOY_ONLY.environment, state.deployEnvironmentId));
     if (path.endsWith("/branches/main/protection")) return jsonResponse(branchProtection);
     if (path.includes(`/contents/${POLICY.purposes.RELEASE_IMAGE_ONLY.workflow}`)) return jsonResponse({ sha: state.workflowSha });
     if (path.includes(`/contents/${POLICY.purposes.RELEASE_IMAGE_ONLY.executor}`)) return jsonResponse({ sha: state.executorSha });
@@ -375,12 +383,38 @@ describe("release controller phased preflight", () => {
     globalThis.fetch = async () => jsonResponse({}, 403);
     await assert.rejects(verifyNativeApprovalPhase({ expectedEnvironmentId: 1 }), /PREFLIGHT_API_HTTP_403/);
   });
+
+  it("fails closed when the dedicated Administration-read credential is absent", async () => {
+    const { run } = configureImage();
+    delete process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN;
+    globalThis.fetch = async (url) => {
+      if (url.endsWith(`/actions/runs/${run.id}`)) return jsonResponse(run);
+      return jsonResponse({});
+    };
+    await assert.rejects(verifyNativeApprovalPhase({ expectedEnvironmentId: 1 }), /PREFLIGHT_ADMIN_READ_TOKEN_UNCONFIGURED/);
+  });
+
+  it("fails closed when the Administration-read provider denies branch-protection readback", async () => {
+    const { run } = configureImage();
+    globalThis.fetch = async (url) => {
+      if (url.endsWith(`/actions/runs/${run.id}`)) return jsonResponse(run);
+      if (url.endsWith("/branches/main/protection")) return jsonResponse({}, 403);
+      return jsonResponse({});
+    };
+    await assert.rejects(verifyNativeApprovalPhase({ expectedEnvironmentId: 1 }), /PREFLIGHT_ADMIN_READ_HTTP_403/);
+  });
 });
 
 describe("authoritative image publication provenance", () => {
+  it("keeps historical image evidence out of the credential-free deploy pre-gate phase", async () => {
+    configureDeploy();
+    delete process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN;
+    await assert.doesNotReject(validateRequestPhase());
+  });
+
   it("accepts correct mocked run, approval, blobs, immutable artifact bytes, and image linkage", async () => {
     configureDeploy();
-    await assert.doesNotReject(validateRequestPhase({ publicationEnvironmentId: 101010 }));
+    await assert.doesNotReject(verifyNativeApprovalPhase({ expectedEnvironmentId: 202020, publicationEnvironmentId: 101010 }));
   });
 
   for (const [name, mutate] of [
@@ -398,7 +432,7 @@ describe("authoritative image publication provenance", () => {
   ]) {
     it(`rejects ${name} with the fail-closed provenance result`, async () => {
       configureDeploy(mutate);
-      await assert.rejects(validateRequestPhase({ publicationEnvironmentId: 101010 }), /PROVENANCE_NOT_VERIFIED|PREFLIGHT_RUN_PROVENANCE|PREFLIGHT_API_HTTP_403/);
+      await assert.rejects(verifyNativeApprovalPhase({ expectedEnvironmentId: 202020, publicationEnvironmentId: 101010 }), /PROVENANCE_NOT_VERIFIED|PREFLIGHT_RUN_PROVENANCE|PREFLIGHT_API_HTTP_403/);
     });
   }
 });
