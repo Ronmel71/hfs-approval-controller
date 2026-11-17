@@ -1,5 +1,32 @@
 # Current status
 
+## 2026-11-17 — issue #435 Administration-read raw-provider boundary correction
+
+- Existing controller PR #17 and branch `feat/issue-434-admin-read-preflight` were updated in place from reviewed head `45154fa317feb21ee4b2d791250e503dc321a176`; no new branch or PR was created. The pinned controller `main` remains exactly `5e41500c97e3befff031478983fadb829c570a47`.
+- `readMainProtection()` now returns the raw fixed-endpoint GitHub branch-protection response to the real `verify-admin-read` orchestration. The shared `validateMainProtectionEvidence()` remains the single raw-policy validation and normalization boundary inside `validateAdminReadEvidence()`; enforce-admins ON and force-push/deletion OFF still fail closed without accepting a normalized object as trusted input.
+- A real CLI-path regression drives `verify-admin-read` through faithful synthetic GitHub run, inventory, job, approval, environment, exact-source and branch-protection responses. Restoring the reviewed double-validation line makes the valid case fail with `ADMIN_READ_PREFLIGHT_REFUSED code=NATIVE_MAIN_PROTECTION`; the corrected path emits `ADMIN_READ_PREFLIGHT_PASS`. Raw policy drift, malformed or denied protection responses, missing token, wrong native approval and wrong exact-source evidence remain refusals.
+- Local verification passes all 178 Node tests, every controller shell/security contract, pinned private-app source checks, Node/Bash syntax, workflow YAML parsing for all 12 workflows, exact protected-workflow blob checks, diff checks and changed-diff secret/security scans. Local `actionlint` remains unavailable and is not claimed.
+- Protected `release-image-only.yml`, `release-deploy-only.yml`, `stage-only-review.yml`, and `native-capability-probe.yml` remain byte-identical at blobs `228a2bcd48b315363af1a19e72497d96f1c60526`, `b0acaad341f5394e2b4a83bea253208f6a092936`, `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`, and `0162b90496b366c1370cb28546e6e46e1955d0dd`. All four real release jobs remain literal-disabled.
+- No live capability PASS, credential creation/read/copy/storage, dispatch/rerun/cancel, native approval, environment/secret/variable/permission/policy mutation, app write, provider/registry/host/business/email action, merge, publication or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review the updated controller PR #17 and its exact-final-head CI. Merge, credential provisioning, live dispatch/native approval, literal stop-gate removal, publication and deploy remain separately authorized future work.
+
+## 2026-11-17 — issue #434 protected controller Administration-read preflight candidate
+
+- Branch `feat/issue-434-admin-read-preflight` is based exactly on controller `main` `5e41500c97e3befff031478983fadb829c570a47` (tree `96594f2f4e33247fc4a826f3731a055fb7f115b0`) after confirming no open controller PR. Private app `staging` remains read-only at `798ada90d2b6461a59d4b495ca3798b110b1a2e6`; no app file or ref was changed.
+- The candidate adds one separate manual-only preflight with a credential-free request-validation job and one selected native-environment-protected readback job. Its fixed `image`/`deploy` selector maps only to `production-image-publication` ID `27579543667` or `production-host-deployment` ID `27579657157`; exact reviewed controller SHA/workflow/script blobs, Ronny actor and triggering actor, attempt 1, a fresh one-use request, and a 30-minute maximum lifetime are fail-closed bindings.
+- Only the protected step can receive the environment-scoped `HFS_CONTROLLER_ADMIN_READ_TOKEN`, and it can use it only for read-only `GET /repos/Ronmel71/hfs-approval-controller/branches/main/protection`. The ordinary job token separately reads authentic run, approval, job, environment, and controller-source evidence. The preflight and release paths share the same protected-main validator for enforce-admins ON plus force-push/deletion OFF.
+- Positive and negative offline coverage proves credential isolation, fixed path/source/target/attempt, missing token, 401/403/404/429, redirect refusal, timeout handling, non-JSON/malformed/policy drift refusal, and that neither this preflight nor the harmless probe can satisfy a release contract. A pass is explicitly `credential_read=true release_ready=false authorization=false`; no live PASS is claimed.
+- Local verification passes all 177 Node tests, all controller shell/security contracts, pinned private-app source checks, Node/Bash syntax, workflow YAML parsing for all 12 workflows, exact protected-workflow blob checks, diff checks, and changed-diff secret/security scans. Local `actionlint` is unavailable and is not claimed.
+- Protected `release-image-only.yml`, `release-deploy-only.yml`, `stage-only-review.yml`, and the original credential-free `native-capability-probe.yml` remain byte-identical at blobs `228a2bcd48b315363af1a19e72497d96f1c60526`, `b0acaad341f5394e2b4a83bea253208f6a092936`, `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`, and `0162b90496b366c1370cb28546e6e46e1955d0dd`.
+- Work in progress: none beyond review and exact-head CI. Known faults: none in offline checks. No workflow dispatch/rerun/cancel, native reviewer approval, token/credential creation or handling, environment/secret/variable/permission/policy mutation, app write, registry/host/provider/business/email action, merge, publication, or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review the one controller PR and its exact-head CI. After a separately approved merge, credential creation/storage and one exact-post-merge-SHA target dispatch/native approval remain separate human-authorized steps; the required future credential is a new controller-only fine-grained PAT with Administration read, implicit Metadata read, no writes or unrelated access, bounded expiry, and Ronny-owned renewal. No access is blocked for code review; the credential is intentionally unprovisioned.
+
 ## 2026-11-17 — issue #433 harmless native capability probe candidate
 
 - Branch `feat/issue-433-native-capability-probe` is based exactly on controller `main` `81aaba6c8d64d0eef6972fe759a6c13aae9651b9` (tree `1b05645a78a145b0eb6203b0d51869e476cf3f47`) after confirming no open controller PR. The private app repository remained read-only. Protected `stage-only-review.yml`, `release-image-only.yml`, and `release-deploy-only.yml` retain blobs `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`, `228a2bcd48b315363af1a19e72497d96f1c60526`, and `b0acaad341f5394e2b4a83bea253208f6a092936`.
