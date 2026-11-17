@@ -32,7 +32,7 @@ die() {
 [[ "$(git rev-parse HEAD:.github/workflows/production-release-approved.yml)" == "$HFS_APP_WORKFLOW_BLOB" ]] || die SOURCE_WORKFLOW
 [[ "$(git rev-parse HEAD:deploy/production/docker-compose.yml)" == aee2e09c124c02b89dce653b9d1f628c1ea00eb6 ]] || die COMPOSE_BLOB
 [[ "$(git rev-parse HEAD:deploy/production/Caddyfile)" == 3049dae5a81cc2396990ca986a97e5275f9a83dd ]] || die CADDY_BLOB
-[[ "$(git rev-parse HEAD:deploy/production/host/hfs-deploy-release)" == 30ee1ec77efe72d754a17ecc839f0cfa581542ce ]] || die HELPER_BLOB
+[[ "$(git rev-parse HEAD:deploy/production/host/hfs-deploy-release)" == 76e408175ac0ff8b207665475f9f5d1240766738 ]] || die HELPER_BLOB
 [[ "$(git rev-parse HEAD:deploy/production/host/hfsdeploy-sudoers)" == baa83f6efe64faab8f12cb5f5a9b6a5665b51de8 ]] || die SUDOERS_BLOB
 
 image="ghcr.io/ronmel71/hfs-selger-app:${HFS_APP_COMMIT}"

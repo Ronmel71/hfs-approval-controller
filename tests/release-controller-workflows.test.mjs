@@ -7,9 +7,12 @@ const image = readFileSync(new URL("../.github/workflows/release-image-only.yml"
 const deploy = readFileSync(new URL("../.github/workflows/release-deploy-only.yml", import.meta.url), "utf8");
 const imageScript = readFileSync(new URL("../scripts/release-image-only.sh", import.meta.url), "utf8");
 const deployScript = readFileSync(new URL("../scripts/release-deploy-only.sh", import.meta.url), "utf8");
+const contractScript = readFileSync(new URL("../scripts/release-controller-contract.mjs", import.meta.url), "utf8");
 const preflightScript = readFileSync(new URL("../scripts/release-controller-preflight.mjs", import.meta.url), "utf8");
 const existingGate = readFileSync(new URL("../.github/workflows/stage-only-review.yml", import.meta.url));
 const gitBlob = (bytes) => createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+const CORRECTED_HELPER_BLOB = "76e408175ac0ff8b207665475f9f5d1240766738";
+const SUPERSEDED_HELPER_BLOB = "30ee1ec77efe72d754a17ecc839f0cfa581542ce";
 
 describe("two-purpose controller workflows", () => {
   it("preserves the verified existing native-review workflow byte-for-byte", () => {
@@ -108,5 +111,12 @@ describe("two-purpose controller workflows", () => {
     assert.match(deployScript, /sudo -n \/usr\/local\/sbin\/hfs-deploy-release/);
     assert.doesNotMatch(deployScript, /ssh .*root@|sudo -i|docker (run|exec|pull)/);
     assert.doesNotMatch(imageScript + deployScript, /set -x|printenv|env\s*>|echo \$.*TOKEN/);
+  });
+
+  it("accepts only the corrected helper at contract and executor boundaries", () => {
+    for (const source of [contractScript, imageScript, deployScript]) {
+      assert.match(source, new RegExp(CORRECTED_HELPER_BLOB));
+      assert.doesNotMatch(source, new RegExp(SUPERSEDED_HELPER_BLOB));
+    }
   });
 });

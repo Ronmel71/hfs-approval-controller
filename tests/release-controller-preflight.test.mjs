@@ -12,6 +12,7 @@ const iso = (epoch) => new Date(epoch * 1000).toISOString();
 const APP_COMMIT = sha("1", 40);
 const APP_TREE = sha("2", 40);
 const STAGING_HEAD = sha("3", 40);
+const SUPERSEDED_HELPER_BLOB = "30ee1ec77efe72d754a17ecc839f0cfa581542ce";
 
 function jsonResponse(value, status = 200) {
   return {
@@ -506,12 +507,19 @@ describe("release controller phased preflight", () => {
 });
 
 describe("post-approval private source attestation", () => {
+  it("accepts the corrected deploy helper blob", async () => {
+    const { request } = configureImage();
+    globalThis.fetch = async (url) => privateSourceResponse(url, request) ?? jsonResponse({}, 404);
+    assert.equal((await attestPrivateAppSource(request)).appCommit, request.app.commit);
+  });
+
   for (const [name, mutate, code] of [
     ["wrong repository", (s) => { s.repository.full_name = "attacker/fork"; }, "SOURCE_ATTESTATION_PIN"],
     ["wrong reviewed branch", (s) => { s.ref.ref = "refs/heads/main"; }, "SOURCE_ATTESTATION_PIN"],
     ["unmerged commit", (s) => { s.comparison.status = "diverged"; }, "SOURCE_ATTESTATION_ANCESTRY"],
     ["tree mismatch", (s) => { s.commit.commit.tree.sha = sha("7", 40); }, "SOURCE_ATTESTATION_PIN"],
     ["altered infrastructure blob", (s) => { s.blobs.set("deploy/production/Caddyfile", sha("7", 40)); }, "SOURCE_ATTESTATION_PIN"],
+    ["superseded deploy helper blob", (s) => { s.blobs.set("deploy/production/host/hfs-deploy-release", SUPERSEDED_HELPER_BLOB); }, "SOURCE_ATTESTATION_PIN"],
   ]) {
     it(`rejects ${name}`, async () => {
       const { request } = configureImage();
