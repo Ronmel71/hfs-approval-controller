@@ -1,5 +1,18 @@
 # Current status
 
+## 2026-11-17 — issue #432 real environment IDs and bounded native-approval freshness
+
+- Branch `feat/issue-432-native-approval-bounds` is based exactly on protected controller `main` `5d5a34674227af58c377c2c22856f3ea28e56223` (tree `4f6cb393df0c870dbf069e6478e12d7fb3b9c666`). Private app `staging` was verified read-only at `798ada90d2b6461a59d4b495ca3798b110b1a2e6`; no app file or ref was changed. The protected `stage-only-review.yml` blob remains byte-identical `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.
+- Authenticated provider readback confirmed distinct empty protected environments `production-image-publication` ID `27579543667` and `production-host-deployment` ID `27579657157`, each with Ronny (`321374159`) as the sole required reviewer, prevent-self-review off, administrator bypass off, and protected-branches-only policy. Those exact IDs are now pinned in controller purpose policy; no environment or policy write occurred.
+- Real approval history for run `43394899577` contains only `user`, `state`, `comment`, and `environments`; it has no approval timestamp. Real attempt-1 job `131783355524` supplies authenticated run/head/attempt identity and `started_at`/`completed_at`. The verifier now proves only the justified interval `run created <= approval <= exact protected job started`; it never substitutes `run.updated_at`, wall clock, or a caller-authored field and never claims an exact approval time.
+- Current evidence requires a complete stable attempt-1 inventory with exactly the successful `validate-request` dependency and exact purpose/app-specific protected job. Every job is bound to run ID, first attempt, controller SHA, `main`, and API run URL. The gate must start inside the original 30-minute request lifetime; current execution must remain in progress with an unexpired request, while historical publication must complete successfully within its original lifetime before its immutable artifact/manifest can authorize a separate deploy.
+- Focused timestamp-free provider-shape coverage includes current and historical success, missing/partial/duplicate inventory, similarly named job, wrong SHA/attempt/reviewer/environment, late gate/completion, expired current request, API denial, source/image mismatch, replay, and two app releases on unchanged controller policy. Administration-read failures remain fail-closed; `HFS_CONTROLLER_ADMIN_READ_TOKEN` is still unprovisioned and no live PASS is claimed.
+- Both controller release jobs and both private-app legacy release jobs remain literal-disabled. No dispatch/rerun/cancel, credential, environment/reviewer/secret/variable/token/permission/policy write, GHCR operation, private-app write, host/WireGuard/SSH access, merge, publication, or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review the single controller-only PR. Merge, Administration-read credential provisioning, harmless live approval probe, literal stop-gate removal, publication, and deploy remain separate exact-SHA-authorized tasks.
+
 ## 2026-11-16 — issue #431 self-service per-release source binding
 
 - Branch `feat/issue-431-dynamic-release-bindings` is based exactly on protected controller `main` `65ae526ad74cce6b8fbf0c55f3caa44019037003`. Only the controller candidate is changed; private app `staging` was verified read-only at `798ada90d2b6461a59d4b495ca3798b110b1a2e6`. The protected `stage-only-review.yml` blob remains byte-identical `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.

@@ -112,6 +112,46 @@ function githubRun(id, workflow, head) {
   };
 }
 
+function jobInventory(run, purpose, { historical = false, requestCreated = now - 120, requestExpires = now + 600 } = {}) {
+  const runUrl = `https://api.github.com/repos/${POLICY.controllerRepository}/actions/runs/${run.id}`;
+  const runCreated = Math.floor(Date.parse(run.created_at) / 1000);
+  const evidenceStart = Math.max(requestCreated, runCreated);
+  const protectedStarted = Math.max(evidenceStart + 10, now - 60);
+  return {
+    total_count: 2,
+    jobs: [
+      {
+        id: run.id * 10 + 1,
+        run_id: run.id,
+        run_attempt: 1,
+        head_sha: run.head_sha,
+        head_branch: "main",
+        run_url: runUrl,
+        name: "validate-request",
+        status: "completed",
+        conclusion: "success",
+        created_at: run.created_at,
+        started_at: iso(evidenceStart + 1),
+        completed_at: iso(evidenceStart + 5),
+      },
+      {
+        id: run.id * 10 + 2,
+        run_id: run.id,
+        run_attempt: 1,
+        head_sha: run.head_sha,
+        head_branch: "main",
+        run_url: runUrl,
+        name: `${POLICY.purposes[purpose].protectedJobName} · ${APP_COMMIT}`,
+        status: historical ? "completed" : "in_progress",
+        conclusion: historical ? "success" : null,
+        created_at: iso(evidenceStart + 6),
+        started_at: iso(protectedStarted),
+        completed_at: historical ? iso(Math.min(protectedStarted + 10, requestExpires - 1)) : null,
+      },
+    ],
+  };
+}
+
 function environment(name, id) {
   return {
     id,
@@ -263,7 +303,6 @@ function configureDeploy(mutate = () => {}) {
       state: "approved",
       user: { login: POLICY.reviewer, id: POLICY.reviewerId },
       environments: [{ name: imagePolicy.environment, id: 101010 }],
-      submitted_at: iso(now - 80),
     }],
     imageEnvironment: environment(imagePolicy.environment, 101010),
     deployEnvironmentId: 202020,
@@ -297,6 +336,11 @@ function configureDeploy(mutate = () => {}) {
     imageDigest: reference.split("@")[1],
     publishedAtEpoch: now - 40,
   };
+  state.imageJobs = jobInventory(imageRun, "RELEASE_IMAGE_ONLY", {
+    historical: true,
+    requestCreated: imageRequest.createdAtEpoch,
+    requestExpires: imageRequest.expiresAtEpoch,
+  });
   mutate(state);
   const deployRequest = finalizeRequest({
     schema: POLICY.schema,
@@ -331,6 +375,10 @@ function configureDeploy(mutate = () => {}) {
   setRequestEnvironment(deployRequest);
   state.deployRun = deployRun;
   state.deployRequest = deployRequest;
+  state.deployJobs = jobInventory(deployRun, "RELEASE_DEPLOY_ONLY", {
+    requestCreated: deployRequest.createdAtEpoch,
+    requestExpires: deployRequest.expiresAtEpoch,
+  });
   state.inventory = [deployRun, state.imageRun];
   state.zip = storedZip(POLICY.provenanceArtifactFile, `${JSON.stringify(state.manifest)}\n`);
   state.artifact = {
@@ -354,10 +402,12 @@ function installDeployFetch(state) {
     const path = `${parsed.pathname}${parsed.search}`;
     if (path.endsWith(`/actions/runs/${state.deployRun.id}`)) return jsonResponse(state.deployRun);
     if (path.endsWith(`/actions/runs/${state.imageRun.id}`)) return jsonResponse(state.imageRun);
+    if (path.includes(`/actions/runs/${state.deployRun.id}/attempts/1/jobs`)) return jsonResponse(state.deployJobs);
+    if (path.includes(`/actions/runs/${state.imageRun.id}/attempts/1/jobs`)) return jsonResponse(state.imageJobs);
     if (path.includes("/actions/runs?")) return jsonResponse({ total_count: state.inventory.length, workflow_runs: state.inventory });
     if (path.endsWith(`/actions/runs/${state.imageRun.id}/approvals`)) return jsonResponse(state.approvals);
     if (path.endsWith(`/actions/runs/${state.deployRun.id}/approvals`)) {
-      return jsonResponse([{ state: "approved", user: { login: POLICY.reviewer, id: POLICY.reviewerId }, environments: [{ name: POLICY.purposes.RELEASE_DEPLOY_ONLY.environment, id: state.deployEnvironmentId }], submitted_at: iso(now - 10) }]);
+      return jsonResponse([{ state: "approved", user: { login: POLICY.reviewer, id: POLICY.reviewerId }, environments: [{ name: POLICY.purposes.RELEASE_DEPLOY_ONLY.environment, id: state.deployEnvironmentId }] }]);
     }
     if (path.includes(`/environments/${POLICY.purposes.RELEASE_IMAGE_ONLY.environment}`)) return jsonResponse(state.imageEnvironment);
     if (path.includes(`/environments/${POLICY.purposes.RELEASE_DEPLOY_ONLY.environment}`)) return jsonResponse(environment(POLICY.purposes.RELEASE_DEPLOY_ONLY.environment, state.deployEnvironmentId));
@@ -418,8 +468,9 @@ describe("release controller phased preflight", () => {
       if (source) return source;
       if (url.endsWith(`/actions/runs/${run.id}`)) return jsonResponse(run);
       if (url.endsWith(`/actions/runs/${run.id}/approvals`)) {
-        return jsonResponse([{ state: "approved", user: { login: POLICY.reviewer, id: POLICY.reviewerId }, environments: [{ name: POLICY.purposes.RELEASE_IMAGE_ONLY.environment, id }], submitted_at: iso(now - 50) }]);
+        return jsonResponse([{ state: "approved", user: { login: POLICY.reviewer, id: POLICY.reviewerId }, environments: [{ name: POLICY.purposes.RELEASE_IMAGE_ONLY.environment, id }] }]);
       }
+      if (url.includes(`/actions/runs/${run.id}/attempts/1/jobs`)) return jsonResponse(jobInventory(run, "RELEASE_IMAGE_ONLY", { requestCreated: request.createdAtEpoch, requestExpires: request.expiresAtEpoch }));
       if (url.includes("/environments/")) return jsonResponse(environment(POLICY.purposes.RELEASE_IMAGE_ONLY.environment, id));
       if (url.endsWith("/branches/main/protection")) return jsonResponse(branchProtection);
       throw new Error(`unexpected URL ${url}`);
@@ -493,7 +544,13 @@ describe("authoritative image publication provenance", () => {
     ["fabricated digest", (s) => { s.reference = `ghcr.io/ronmel71/hfs-selger-app@sha256:${sha("7")}`; }],
     ["mismatched app commit", (s) => { s.manifest.appCommit = sha("7", 40); }],
     ["other controller revision", (s) => { s.imageRun.head_sha = sha("7", 40); }],
-    ["stale image approval", (s) => { s.approvals[0].submitted_at = iso(now - 1_000); }],
+    ["missing image gated job", (s) => { s.imageJobs.jobs.pop(); s.imageJobs.total_count = 1; }],
+    ["partial image job inventory", (s) => { s.imageJobs.total_count = 3; }],
+    ["duplicate image jobs", (s) => { s.imageJobs.jobs[1].id = s.imageJobs.jobs[0].id; }],
+    ["wrong image gated job name", (s) => { s.imageJobs.jobs[1].name = "Native approval · RELEASE_IMAGE_ONLY · other"; }],
+    ["wrong image gated job SHA", (s) => { s.imageJobs.jobs[1].head_sha = sha("7", 40); }],
+    ["wrong image gated job attempt", (s) => { s.imageJobs.jobs[1].run_attempt = 2; }],
+    ["late image execution", (s) => { s.imageJobs.jobs[1].completed_at = iso(s.imageRequest.expiresAtEpoch + 1); }],
     ["failed publisher", (s) => { s.imageRun.conclusion = "failure"; }],
     ["retried publisher", (s) => { s.imageRun.run_attempt = 2; }],
     ["mutated publisher workflow", (s) => { s.workflowSha = sha("7", 40); }],

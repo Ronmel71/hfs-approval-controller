@@ -88,6 +88,7 @@ function resign(request) {
 
 function nativeEvidence(request, environmentId = 123456789) {
   const name = POLICY.purposes[request.purpose].environment;
+  const runUrl = `https://api.github.com/repos/${POLICY.controllerRepository}/actions/runs/${request.run.id}`;
   return {
     expectedEnvironmentId: environmentId,
     nowEpoch: now,
@@ -98,7 +99,8 @@ function nativeEvidence(request, environmentId = 123456789) {
       head_branch: "main",
       head_sha: request.controller.head,
       repository: { full_name: POLICY.controllerRepository },
-      status: "completed",
+      status: "in_progress",
+      conclusion: null,
       created_at: new Date((now - 100) * 1000).toISOString(),
       updated_at: new Date((now - 10) * 1000).toISOString(),
     },
@@ -106,8 +108,40 @@ function nativeEvidence(request, environmentId = 123456789) {
       state: "approved",
       user: { login: POLICY.reviewer, id: POLICY.reviewerId },
       environments: [{ name, id: environmentId }],
-      submitted_at: new Date((now - 60) * 1000).toISOString(),
     }],
+    jobInventory: {
+      total_count: 2,
+      jobs: [
+        {
+          id: 700001,
+          run_id: Number(request.run.id),
+          run_attempt: 1,
+          head_sha: request.controller.head,
+          head_branch: "main",
+          run_url: runUrl,
+          name: "validate-request",
+          status: "completed",
+          conclusion: "success",
+          created_at: new Date((now - 100) * 1000).toISOString(),
+          started_at: new Date((now - 95) * 1000).toISOString(),
+          completed_at: new Date((now - 90) * 1000).toISOString(),
+        },
+        {
+          id: 700002,
+          run_id: Number(request.run.id),
+          run_attempt: 1,
+          head_sha: request.controller.head,
+          head_branch: "main",
+          run_url: runUrl,
+          name: `${POLICY.purposes[request.purpose].protectedJobName} · ${request.app.commit}`,
+          status: "in_progress",
+          conclusion: null,
+          created_at: new Date((now - 89) * 1000).toISOString(),
+          started_at: new Date((now - 60) * 1000).toISOString(),
+          completed_at: null,
+        },
+      ],
+    },
     environment: {
       id: environmentId,
       name,
@@ -131,6 +165,12 @@ function nativeEvidence(request, environmentId = 123456789) {
 }
 
 describe("release controller request contract", () => {
+  it("pins the two real purpose-specific protected environment IDs", () => {
+    assert.equal(POLICY.purposes.RELEASE_IMAGE_ONLY.environmentId, 27579543667);
+    assert.equal(POLICY.purposes.RELEASE_DEPLOY_ONLY.environmentId, 27579657157);
+    assert.notEqual(POLICY.purposes.RELEASE_IMAGE_ONLY.environmentId, POLICY.purposes.RELEASE_DEPLOY_ONLY.environmentId);
+  });
+
   it("accepts separate image and deploy requests without pre-claiming native approval", () => {
     for (const purpose of ["RELEASE_IMAGE_ONLY", "RELEASE_DEPLOY_ONLY"]) {
       const request = fixture(purpose);
@@ -199,9 +239,13 @@ describe("release controller request contract", () => {
 });
 
 describe("post-gate native approval evidence", () => {
-  it("accepts one fresh exact reviewer and protected environment", () => {
+  it("accepts timestamp-free approval as a bounded interval before the exact gated job", () => {
     const request = fixture();
-    assert.equal(validateNativeApprovalEvidence(request, nativeEvidence(request)).reviewerId, POLICY.reviewerId);
+    const result = validateNativeApprovalEvidence(request, nativeEvidence(request));
+    assert.equal(result.reviewerId, POLICY.reviewerId);
+    assert.equal(result.approvalNotBeforeEpoch, now - 100);
+    assert.equal(result.approvalNotAfterEpoch, now - 60);
+    assert.equal("approvedAtEpoch" in result, false);
   });
 
   for (const [name, mutate, code] of [
@@ -214,8 +258,14 @@ describe("post-gate native approval evidence", () => {
     ["wrong environment ID", (e) => { e.approvals[0].environments[0].id += 1; }, "NATIVE_APPROVAL"],
     ["admin bypass", (e) => { e.environment.can_admins_bypass = true; }, "NATIVE_ENVIRONMENT"],
     ["self-review deadlock", (e) => { e.environment.protection_rules[0].prevent_self_review = true; }, "NATIVE_REVIEW_POLICY"],
-    ["missing timestamp capability", (e) => { delete e.approvals[0].submitted_at; }, "NATIVE_APPROVAL_TIMESTAMP_UNAVAILABLE"],
-    ["expired approval", (e) => { e.approvals[0].submitted_at = new Date((now + 601) * 1000).toISOString(); }, "NATIVE_APPROVAL_FRESHNESS"],
+    ["missing gated job", (e) => { e.jobInventory.jobs.pop(); e.jobInventory.total_count = 1; }, "NATIVE_JOB_INVENTORY"],
+    ["partial job inventory", (e) => { e.jobInventory.total_count = 3; }, "NATIVE_JOB_INVENTORY"],
+    ["duplicate job record", (e) => { e.jobInventory.jobs[1].id = e.jobInventory.jobs[0].id; }, "NATIVE_JOB_INVENTORY"],
+    ["similarly named ungated job", (e) => { e.jobInventory.jobs[1].name += " copy"; }, "NATIVE_JOB_IDENTITY"],
+    ["wrong gated job SHA", (e) => { e.jobInventory.jobs[1].head_sha = "7".repeat(40); }, "NATIVE_JOB_PROVENANCE"],
+    ["wrong gated job attempt", (e) => { e.jobInventory.jobs[1].run_attempt = 2; }, "NATIVE_JOB_PROVENANCE"],
+    ["gate starts after request expiry", (e) => { e.jobInventory.jobs[1].started_at = new Date((now + 601) * 1000).toISOString(); }, "NATIVE_JOB_ORDER"],
+    ["expired current execution", (e) => { e.nowEpoch = now + 601; }, "NATIVE_APPROVAL_FRESHNESS"],
     ["unprotected main", (e) => { e.branchProtection.enforce_admins.enabled = false; }, "NATIVE_MAIN_PROTECTION"],
     ["force pushes allowed on main", (e) => { e.branchProtection.allow_force_pushes.enabled = true; }, "NATIVE_MAIN_PROTECTION"],
     ["deletion allowed on main", (e) => { e.branchProtection.allow_deletions.enabled = true; }, "NATIVE_MAIN_PROTECTION"],
@@ -227,4 +277,18 @@ describe("post-gate native approval evidence", () => {
       assert.throws(() => validateNativeApprovalEvidence(request, evidence), new RegExp(code));
     });
   }
+
+  it("accepts completed historical execution only when the exact gated job finished inside its original lifetime", () => {
+    const request = fixture();
+    const evidence = nativeEvidence(request);
+    evidence.allowHistorical = true;
+    evidence.run.status = "completed";
+    evidence.run.conclusion = "success";
+    evidence.jobInventory.jobs[1].status = "completed";
+    evidence.jobInventory.jobs[1].conclusion = "success";
+    evidence.jobInventory.jobs[1].completed_at = new Date((now - 10) * 1000).toISOString();
+    assert.equal(validateNativeApprovalEvidence(request, evidence).protectedJobId, 700002);
+    evidence.jobInventory.jobs[1].completed_at = new Date((now + 601) * 1000).toISOString();
+    assert.throws(() => validateNativeApprovalEvidence(request, evidence), /NATIVE_JOB_ORDER/);
+  });
 });
