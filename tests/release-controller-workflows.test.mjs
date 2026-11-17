@@ -35,8 +35,8 @@ describe("dormant controller workflows", () => {
     assert.doesNotMatch(deploy.slice(0, deploy.indexOf("  release-deploy-only:")), /secrets\./);
     assert.match(image.slice(0, image.indexOf("  release-image-only:")), /node scripts\/release-controller-preflight\.mjs validate-request/);
     assert.match(deploy.slice(0, deploy.indexOf("  release-deploy-only:")), /node scripts\/release-controller-preflight\.mjs validate-request/);
-    assert.ok(imageJob.indexOf("verify-native-approval") < imageJob.indexOf("secrets.HFS_PRIVATE_SOURCE_READ_TOKEN"));
-    assert.ok(deployJob.indexOf("verify-native-approval") < deployJob.indexOf("secrets.HFS_PRIVATE_SOURCE_READ_TOKEN"));
+    assert.match(imageJob, /HFS_PRIVATE_SOURCE_READ_TOKEN: \$\{\{ secrets\.HFS_PRIVATE_SOURCE_READ_TOKEN \}\}(?:.|\n)*run: node scripts\/release-controller-preflight\.mjs verify-native-approval/);
+    assert.match(deployJob, /HFS_PRIVATE_SOURCE_READ_TOKEN: \$\{\{ secrets\.HFS_PRIVATE_SOURCE_READ_TOKEN \}\}(?:.|\n)*run: node scripts\/release-controller-preflight\.mjs verify-native-approval/);
     assert.doesNotMatch(image.slice(0, image.indexOf("  release-image-only:")), /verify-native-approval|NATIVE_APPROVED/);
     assert.doesNotMatch(deploy.slice(0, deploy.indexOf("  release-deploy-only:")), /verify-native-approval|NATIVE_APPROVED/);
     assert.match(preflightScript, /redirect: binary \? "follow" : "error"/);
@@ -64,11 +64,21 @@ describe("dormant controller workflows", () => {
     }
   });
 
-  it("pins the app source and uses digest readback without mutable tags or fallback", () => {
+  it("binds a strict per-request app source and uses digest readback without mutable tags or fallback", () => {
     for (const source of [image, deploy, imageScript, deployScript]) {
-      assert.match(source, /798ada90d2b6461a59d4b495ca3798b110b1a2e6/);
       assert.doesNotMatch(source, /:latest|refs\/heads\/staging[^'"\n]*checkout/);
     }
+    for (const workflow of [image, deploy]) {
+      assert.match(workflow, /app_commit:\n\s+description: Exact approved private app commit \(40 lowercase hex\)/);
+      assert.match(workflow, /app_tree:\n\s+description: Exact approved private app tree \(40 lowercase hex\)/);
+      assert.match(workflow, /ref: \$\{\{ inputs\.app_commit \}\}/);
+      assert.match(workflow, /name: Native approval · RELEASE_(?:IMAGE|DEPLOY)_ONLY · \$\{\{ inputs\.app_commit \}\}/);
+      assert.match(workflow, /run-name:.*\$\{\{ inputs\.app_commit \}\}/);
+    }
+    assert.doesNotMatch(image.slice(0, image.indexOf("  release-image-only:")), /HFS_PRIVATE_SOURCE_READ_TOKEN|secrets\./);
+    assert.doesNotMatch(deploy.slice(0, deploy.indexOf("  release-deploy-only:")), /HFS_PRIVATE_SOURCE_READ_TOKEN|secrets\./);
+    assert.match(preflightScript, /attestPrivateAppSource/);
+    assert.match(preflightScript, /\/compare\/\$\{request\.app\.commit\}\.\.\.\$\{stagingHead\}/);
     assert.match(imageScript, /docker buildx imagetools inspect/);
     assert.match(imageScript, /ghcr\.io\/ronmel71\/hfs-selger-app@\$reference/);
     assert.match(image, /actions\/upload-artifact@[0-9a-f]{40}/);
@@ -78,6 +88,7 @@ describe("dormant controller workflows", () => {
     assert.match(deploy, /publication_controller_head/);
     assert.match(deploy, /publication_workflow_blob/);
     assert.match(deploy, /run-name:.*publication \$\{\{ inputs\.publication_run_id \}\}/);
+    assert.doesNotMatch(image + deploy, /798ada90d2b6461a59d4b495ca3798b110b1a2e6|782771cf58956453d31313756252ba073a852c5c/);
   });
 
   it("uses hook-free WireGuard, strict no-agent SSH, no-clobber staging, and only the narrow helper", () => {

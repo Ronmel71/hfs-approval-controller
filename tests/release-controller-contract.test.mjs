@@ -10,6 +10,8 @@ import {
 
 const now = 2_000_000_000;
 const sha = (character, length = 64) => character.repeat(length);
+const APP_COMMIT = sha("1", 40);
+const APP_TREE = sha("2", 40);
 
 function fixture(purpose = "RELEASE_IMAGE_ONLY") {
   const purposePolicy = POLICY.purposes[purpose];
@@ -24,8 +26,8 @@ function fixture(purpose = "RELEASE_IMAGE_ONLY") {
     app: {
       repository: POLICY.appRepository,
       ref: POLICY.appRef,
-      commit: POLICY.appCommit,
-      tree: POLICY.appTree,
+      commit: APP_COMMIT,
+      tree: APP_TREE,
       workflow: POLICY.appWorkflow,
       workflowBlob: POLICY.appWorkflowBlob,
       composeBlob: POLICY.composeBlob,
@@ -137,10 +139,21 @@ describe("release controller request contract", () => {
     }
   });
 
+  it("accepts two different approved app releases on one unchanged controller policy", () => {
+    const first = fixture();
+    const second = fixture();
+    second.app.commit = sha("3", 40);
+    second.app.tree = sha("4", 40);
+    const rebound = resign(second);
+    assert.equal(validateRequest(first, options(first)).appCommit, APP_COMMIT);
+    assert.equal(validateRequest(rebound, options(rebound)).appCommit, sha("3", 40));
+    assert.notEqual(first.requestId, rebound.requestId);
+  });
+
   for (const [name, purpose, mutate, code] of [
     ["wrong repository", "RELEASE_IMAGE_ONLY", (r) => { r.app.repository = "attacker/fork"; }, "CONTRACT_APP_PIN"],
-    ["wrong app commit", "RELEASE_IMAGE_ONLY", (r) => { r.app.commit = sha("3", 40); }, "CONTRACT_APP_PIN"],
-    ["wrong app tree", "RELEASE_IMAGE_ONLY", (r) => { r.app.tree = sha("3", 40); }, "CONTRACT_APP_PIN"],
+    ["malformed app commit", "RELEASE_IMAGE_ONLY", (r) => { r.app.commit = "refs/heads/staging"; }, "CONTRACT_APP_PIN"],
+    ["malformed app tree", "RELEASE_IMAGE_ONLY", (r) => { r.app.tree = sha("A", 40); }, "CONTRACT_APP_PIN"],
     ["wrong app workflow blob", "RELEASE_IMAGE_ONLY", (r) => { r.app.workflowBlob = sha("3", 40); }, "CONTRACT_APP_PIN"],
     ["wrong deploy helper blob", "RELEASE_DEPLOY_ONLY", (r) => { r.app.helperBlob = sha("3", 40); }, "CONTRACT_APP_PIN"],
     ["mutable controller ref", "RELEASE_IMAGE_ONLY", (r) => { r.controller.ref = "refs/tags/latest"; }, "CONTRACT_CONTROLLER_PIN"],

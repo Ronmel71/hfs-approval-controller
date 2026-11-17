@@ -9,8 +9,6 @@ export const POLICY = Object.freeze({
   provenanceArtifactFile: "hfs-release-image-provenance.json",
   appRepository: "Ronmel71/hfs-selger-app",
   appRef: "refs/heads/staging",
-  appCommit: "798ada90d2b6461a59d4b495ca3798b110b1a2e6",
-  appTree: "782771cf58956453d31313756252ba073a852c5c",
   appWorkflow: ".github/workflows/production-release-approved.yml",
   appWorkflowBlob: "2c15f1e1a47af65d309c08eca4b86cbb445734a0",
   composeBlob: "aee2e09c124c02b89dce653b9d1f628c1ea00eb6",
@@ -103,7 +101,7 @@ function requestBinding(request) {
 function validatePins(request, purposePolicy) {
   exactKeys(request.app, ["repository", "ref", "commit", "tree", "workflow", "workflowBlob", "composeBlob", "caddyBlob", "helperBlob", "sudoersBlob"], "CONTRACT_APP_FIELDS");
   if (request.app.repository !== POLICY.appRepository || request.app.ref !== POLICY.appRef ||
-      request.app.commit !== POLICY.appCommit || request.app.tree !== POLICY.appTree ||
+      !SHA40.test(request.app.commit) || !SHA40.test(request.app.tree) ||
       request.app.workflow !== POLICY.appWorkflow || request.app.workflowBlob !== POLICY.appWorkflowBlob ||
       request.app.composeBlob !== POLICY.composeBlob || request.app.caddyBlob !== POLICY.caddyBlob ||
       request.app.helperBlob !== POLICY.helperBlob || request.app.sudoersBlob !== POLICY.sudoersBlob) refuse("CONTRACT_APP_PIN");

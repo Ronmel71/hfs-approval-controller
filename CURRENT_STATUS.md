@@ -1,5 +1,18 @@
 # Current status
 
+## 2026-11-16 — issue #431 self-service per-release source binding
+
+- Branch `feat/issue-431-dynamic-release-bindings` is based exactly on protected controller `main` `65ae526ad74cce6b8fbf0c55f3caa44019037003`. Only the controller candidate is changed; private app `staging` was verified read-only at `798ada90d2b6461a59d4b495ca3798b110b1a2e6`. The protected `stage-only-review.yml` blob remains byte-identical `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.
+- `appCommit` and `appTree` are now strict full lowercase 40-hex per-request inputs for both independent release purposes and are covered by each canonical request hash. Full app commit appears in the run name, protected approval job, and summary. Repository/ref, app workflow/blob, Compose, Caddy, helper, and sudoers remain fixed controller policy; checkout can use only the approved full commit and has no branch/tag/latest fallback.
+- After each native environment approval and before private checkout execution, the existing least-privilege private source token performs fixed read-only provider attestation of exact private repository identity, reviewed staging head, requested-commit ancestry, commit tree, and every locked blob. Both executors independently recheck fetched HEAD/tree/workflow/infra blobs before build/publish or SSH. The credential-free pre-gates contain no private source token or private source calls.
+- Deploy still requires a fresh independent approval and authenticated historical image evidence. Its request app commit/tree must match the original publication manifest, canonical image request, immutable GHCR digest, artifact digest, controller head, workflow/executor blobs, native approval, and anti-replay inventory; a digest from another source is refused.
+- Controller PR #14 contains the single review surface. Local verification passes 36/36 existing controller Node tests, 3/3 connectivity tests, 73/73 release-controller tests, all controller shell/security contracts, Bash syntax, workflow YAML parse, secret scan, exact private-source pin checks, preserved stage-only blob, and diff checks. Exact-head controller CI is required green; local `actionlint` is unavailable and is not claimed.
+- Both controller privileged jobs and both legacy private app jobs remain literal-disabled. No workflow dispatch/rerun, environment/reviewer/secret/policy write, GHCR operation, app-repository write, host/WireGuard/SSH connection, provider mutation, merge, or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review the single controller PR. Merge, environment configuration, credential provisioning, literal stop-gate removal, dispatch, publication, and deploy remain outside this task.
+
 ## 2026-11-16 — issue #430 branch-protection readback capability correction
 
 - Existing controller PR #13 and branch `feat/issue-428-public-release-controller` were updated in place; no replacement branch or PR was created. The issue-pinned head/base matched before editing, and the verified `stage-only-review.yml` blob remains `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.

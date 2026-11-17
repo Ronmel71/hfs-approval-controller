@@ -11,8 +11,8 @@ die() {
 [[ "${GITHUB_REPOSITORY:-}" == Ronmel71/hfs-approval-controller ]] || die CONTROLLER_REPOSITORY
 [[ "${GITHUB_REF:-}" == refs/heads/main ]] || die CONTROLLER_REF
 [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || die CONTROLLER_HEAD
-[[ "${HFS_APP_COMMIT:-}" == 798ada90d2b6461a59d4b495ca3798b110b1a2e6 ]] || die APP_COMMIT
-[[ "${HFS_APP_TREE:-}" == 782771cf58956453d31313756252ba073a852c5c ]] || die APP_TREE
+[[ "${HFS_APP_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]] || die APP_COMMIT
+[[ "${HFS_APP_TREE:-}" =~ ^[0-9a-f]{40}$ ]] || die APP_TREE
 [[ "${HFS_APP_WORKFLOW_BLOB:-}" == 2c15f1e1a47af65d309c08eca4b86cbb445734a0 ]] || die APP_WORKFLOW
 [[ "${HFS_PUBLICATION_REQUEST_ID:-}" =~ ^[0-9a-f]{64}$ ]] || die REQUEST_ID
 [[ "${HFS_PUBLICATION_NONCE:-}" =~ ^[0-9a-f]{64}$ ]] || die NONCE
@@ -30,6 +30,10 @@ die() {
 [[ "$(git rev-parse HEAD)" == "$HFS_APP_COMMIT" ]] || die SOURCE_HEAD
 [[ "$(git rev-parse HEAD^{tree})" == "$HFS_APP_TREE" ]] || die SOURCE_TREE
 [[ "$(git rev-parse HEAD:.github/workflows/production-release-approved.yml)" == "$HFS_APP_WORKFLOW_BLOB" ]] || die SOURCE_WORKFLOW
+[[ "$(git rev-parse HEAD:deploy/production/docker-compose.yml)" == aee2e09c124c02b89dce653b9d1f628c1ea00eb6 ]] || die COMPOSE_BLOB
+[[ "$(git rev-parse HEAD:deploy/production/Caddyfile)" == 3049dae5a81cc2396990ca986a97e5275f9a83dd ]] || die CADDY_BLOB
+[[ "$(git rev-parse HEAD:deploy/production/host/hfs-deploy-release)" == 30ee1ec77efe72d754a17ecc839f0cfa581542ce ]] || die HELPER_BLOB
+[[ "$(git rev-parse HEAD:deploy/production/host/hfsdeploy-sudoers)" == baa83f6efe64faab8f12cb5f5a9b6a5665b51de8 ]] || die SUDOERS_BLOB
 
 image="ghcr.io/ronmel71/hfs-selger-app:${HFS_APP_COMMIT}"
 registry_host="ghcr.io"
