@@ -11,7 +11,7 @@
 
 ### Next gate
 
-Review the single controller PR. Merge and each independent future exact-post-merge-SHA `image` or `deploy` dispatch/native approval remain separate explicit approvals; Ronny performs the native approval himself, and no combined live PASS is promised.
+Review controller PR #16. Merge and each independent future exact-post-merge-SHA `image` or `deploy` dispatch/native approval remain separate explicit approvals; Ronny performs the native approval himself, and no combined live PASS is promised.
 
 ## 2026-11-17 — issue #432 real environment IDs and bounded native-approval freshness
 
