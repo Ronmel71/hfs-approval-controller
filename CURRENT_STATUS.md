@@ -11,7 +11,7 @@
 
 ### Next gate
 
-Review the single controller-only PR. Merge, Administration-read credential provisioning, harmless live approval probe, literal stop-gate removal, publication, and deploy remain separate exact-SHA-authorized tasks.
+Review controller PR #15. Merge, Administration-read credential provisioning, harmless live approval probe, literal stop-gate removal, publication, and deploy remain separate exact-SHA-authorized tasks.
 
 ## 2026-11-16 — issue #431 self-service per-release source binding
 
