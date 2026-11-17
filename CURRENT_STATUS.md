@@ -1,5 +1,17 @@
 # Current status
 
+## 2026-11-17 — issue #443 WireGuard client basename correction candidate
+
+- Branch `fix/issue-443-wg-basename` starts exactly at protected controller `main` `1b70aefc5c8e09f2ddcfc335df5bb2bb75352de5`, tree `c9124f07cb036f28e5e21a5a7b98e3010a08cf14`, after confirming no open controller PR and no overlapping file owner. Private app `staging` remains read-only at `3e143784a0c83cdacf584267a57aa8476433ea89`, tree `a5f3d7179014931ba9d9f5d4e85a6b131fe76e2c`.
+- The deploy executor changes only its temporary WireGuard config basename from invalid 17-character `hfs-controller-wg` to valid 6-character `hfs-wg`. Cleanup still uses the same `wg_path` for `wg-quick down` and secure deletion, and the up/down, SSH and deployment behavior is otherwise unchanged.
+- New isolated coverage invokes real upstream `wg-quick strip` against synthetic non-secret configs. It proves the historical basename is refused, the corrected basename is accepted, and no `wg`, `ip`, SSH or network client command is invoked.
+- Local verification passes all 182 existing Node tests (36 signer/continuity, 3 connectivity, 143 release/probe/Administration-read), all five existing shell/security workflow contract programs, pinned app source verification, the new real-`wg-quick` regression, Node syntax for every controller script/test, Bash syntax for every controller script/test, YAML parsing for all 12 workflows, `git diff --check`, protected-blob checks and a changed-diff credential-pattern scan. All workflows, the image executor, release contract and preflight remain byte-identical; local `actionlint`, `shellcheck` and `gitleaks` are unavailable and are not claimed.
+- Operational phase is `HOST_TRUST_PENDING`: five host values are configured in the exact `production-host-deployment` environment, while the attended `HFS_PRIVATE_SOURCE_READ_TOKEN` step and separate root-console host installation remain pending. Existing `HFS_CONTROLLER_ADMIN_READ_TOKEN`, target environment policy, legacy environments, image candidate and private app remain unchanged. No host connection, host mutation, workflow dispatch/rerun, native approval, registry action, merge, deploy, migration, data/email or DNS action occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review this one controller PR and its exact-final-head code-only CI. Separately, ChatGPT must finish the attended source-reader step and apply the public-only host trust package through its existing authenticated root console before any authorized read-only connectivity check. Merge, release dispatch, native deploy approval and deployment remain unauthorized.
+
 ## 2026-11-17 — issue #441 deploy-only activation candidate
 
 - Branch `feat/issue-441-deploy-activation` starts exactly at protected controller `main` `b7529537602e081fd2349a6f1ffdf683d306ac2b`, tree `04291c4c41a7b2184ddd5d20186b8d4d84f76aa4`, after confirming no open controller issue or PR. Private app `staging` was verified read-only at `3e143784a0c83cdacf584267a57aa8476433ea89`, tree `a5f3d7179014931ba9d9f5d4e85a6b131fe76e2c`; no app source or ref was changed.
