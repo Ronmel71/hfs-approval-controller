@@ -19,18 +19,38 @@ describe("two-purpose controller workflows", () => {
     assert.equal(gitBlob(existingGate), "8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4");
   });
 
-  it("activates only the image job behind the exact strict pre-gate condition", () => {
-    const strictImageCondition = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71'";
+  it("activates both purpose-specific jobs only behind the exact strict pre-gate condition", () => {
+    const strictReleaseCondition = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71'";
     const imageConditions = [...image.matchAll(/^\s+if: \$\{\{ (.+) \}\}$/gm)].map((match) => match[1]);
+    const deployConditions = [...deploy.matchAll(/^\s+if: \$\{\{ (.+) \}\}$/gm)].map((match) => match[1]);
 
-    assert.deepEqual(imageConditions, [strictImageCondition, strictImageCondition]);
+    assert.deepEqual(imageConditions, [strictReleaseCondition, strictReleaseCondition]);
+    assert.deepEqual(deployConditions, [strictReleaseCondition, strictReleaseCondition]);
     assert.doesNotMatch(image, /if: \$\{\{ false \}\}/);
-    assert.match(deploy, /  release-deploy-only:\n(?:.|\n)*?    if: \$\{\{ false \}\}/);
-    assert.equal(deploy.match(/if: \$\{\{ false \}\}/g)?.length, 1);
+    assert.doesNotMatch(deploy, /if: \$\{\{ false \}\}/);
     assert.doesNotMatch(image + deploy, /^  (pull_request|pull_request_target|push|schedule|repository_dispatch):/m);
     assert.match(image, /  release-image-only:\n(?:.|\n)*?    needs: validate-request/);
+    assert.match(deploy, /  release-deploy-only:\n(?:.|\n)*?    needs: validate-request/);
     assert.match(image, /environment: production-image-publication/);
+    assert.match(deploy, /environment: production-host-deployment/);
     assert.doesNotMatch(image, /RELEASE_DEPLOY_ONLY|APPROVE_DEPLOY|production-host-deployment|release-deploy-only/);
+  });
+
+  it("rejects broadened, automatic, rerun, and non-Ronny deploy gates", () => {
+    const strictReleaseCondition = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71'";
+    const acceptsReleaseGate = (condition) => condition === strictReleaseCondition;
+
+    assert.equal(acceptsReleaseGate(strictReleaseCondition), true);
+    for (const unsafeCondition of [
+      "github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71'",
+      strictReleaseCondition.replace("workflow_dispatch", "push"),
+      strictReleaseCondition.replace("github.ref == 'refs/heads/main' && ", ""),
+      strictReleaseCondition.replace("github.run_attempt == 1", "github.run_attempt >= 1"),
+      strictReleaseCondition.replace("github.actor == 'Ronmel71'", "github.actor == 'another-user'"),
+      strictReleaseCondition.replace("github.triggering_actor == 'Ronmel71'", "github.triggering_actor == 'another-user'"),
+    ]) {
+      assert.equal(acceptsReleaseGate(unsafeCondition), false, unsafeCondition);
+    }
   });
 
   it("puts distinct native environments on the credential-bearing jobs before any secret use", () => {

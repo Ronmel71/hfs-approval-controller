@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { validateNativeGateEvidence, validateRequest } from "../scripts/release-controller-contract.mjs";
@@ -15,8 +14,6 @@ const now = 2_000_000_000;
 const sha = (character, length = 64) => character.repeat(length);
 const workflow = readFileSync(new URL("../.github/workflows/native-capability-probe.yml", import.meta.url), "utf8");
 const script = readFileSync(new URL("../scripts/native-capability-probe.mjs", import.meta.url), "utf8");
-const deployWorkflow = readFileSync(new URL("../.github/workflows/release-deploy-only.yml", import.meta.url));
-const gitBlob = (bytes) => createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
 
 function fixture(target = "image") {
   return finalizeProbeRequest({
@@ -255,10 +252,9 @@ describe("manual harmless workflow", () => {
     assert.doesNotMatch(script, /method:\s*"(?:POST|PUT|PATCH|DELETE)"/);
   });
 
-  it("emits only non-authorizing capability status and preserves the dormant deploy workflow byte-for-byte", () => {
+  it("emits only non-authorizing capability status", () => {
     assert.match(script, /NATIVE_PROBE_PASS/);
     assert.match(script, /release_ready=false authorization=false/);
     assert.doesNotMatch(script, /RELEASE_CONTROLLER_REQUEST_VALID|RELEASE_CONTROLLER_NATIVE_APPROVAL_VERIFIED/);
-    assert.equal(gitBlob(deployWorkflow), "b0acaad341f5394e2b4a83bea253208f6a092936");
   });
 });
