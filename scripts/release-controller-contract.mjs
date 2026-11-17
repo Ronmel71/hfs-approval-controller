@@ -13,7 +13,7 @@ export const POLICY = Object.freeze({
   appWorkflowBlob: "2c15f1e1a47af65d309c08eca4b86cbb445734a0",
   composeBlob: "aee2e09c124c02b89dce653b9d1f628c1ea00eb6",
   caddyBlob: "3049dae5a81cc2396990ca986a97e5275f9a83dd",
-  helperBlob: "30ee1ec77efe72d754a17ecc839f0cfa581542ce",
+  helperBlob: "76e408175ac0ff8b207665475f9f5d1240766738",
   sudoersBlob: "baa83f6efe64faab8f12cb5f5a9b6a5665b51de8",
   controllerRepository: "Ronmel71/hfs-approval-controller",
   controllerRef: "refs/heads/main",
