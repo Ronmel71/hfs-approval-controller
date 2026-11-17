@@ -245,8 +245,7 @@ function validateSource(source, request) {
 
 export async function readMainProtection() {
   const token = process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN || refuse("ADMIN_READ_TOKEN_UNCONFIGURED");
-  const protection = await getJson("/branches/main/protection", { token, errorPrefix: "ADMIN_READ_PROTECTION" });
-  return validateMainProtectionEvidence(protection);
+  return getJson("/branches/main/protection", { token, errorPrefix: "ADMIN_READ_PROTECTION" });
 }
 
 export function validateAdminReadEvidence(request, { branchProtection, ...evidence } = {}) {
@@ -284,7 +283,7 @@ function summary(line) {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${line}\n`, "utf8");
 }
 
-async function cli(argv) {
+export async function cli(argv) {
   try {
     if (argv.length !== 3 || !["request-id", "validate-request", "verify-admin-read"].includes(argv[2])) refuse("ADMIN_READ_USAGE");
     if (argv[2] === "request-id") {

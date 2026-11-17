@@ -1,5 +1,18 @@
 # Current status
 
+## 2026-11-17 — issue #435 Administration-read raw-provider boundary correction
+
+- Existing controller PR #17 and branch `feat/issue-434-admin-read-preflight` were updated in place from reviewed head `45154fa317feb21ee4b2d791250e503dc321a176`; no new branch or PR was created. The pinned controller `main` remains exactly `5e41500c97e3befff031478983fadb829c570a47`.
+- `readMainProtection()` now returns the raw fixed-endpoint GitHub branch-protection response to the real `verify-admin-read` orchestration. The shared `validateMainProtectionEvidence()` remains the single raw-policy validation and normalization boundary inside `validateAdminReadEvidence()`; enforce-admins ON and force-push/deletion OFF still fail closed without accepting a normalized object as trusted input.
+- A real CLI-path regression drives `verify-admin-read` through faithful synthetic GitHub run, inventory, job, approval, environment, exact-source and branch-protection responses. Restoring the reviewed double-validation line makes the valid case fail with `ADMIN_READ_PREFLIGHT_REFUSED code=NATIVE_MAIN_PROTECTION`; the corrected path emits `ADMIN_READ_PREFLIGHT_PASS`. Raw policy drift, malformed or denied protection responses, missing token, wrong native approval and wrong exact-source evidence remain refusals.
+- Local verification passes all 178 Node tests, every controller shell/security contract, pinned private-app source checks, Node/Bash syntax, workflow YAML parsing for all 12 workflows, exact protected-workflow blob checks, diff checks and changed-diff secret/security scans. Local `actionlint` remains unavailable and is not claimed.
+- Protected `release-image-only.yml`, `release-deploy-only.yml`, `stage-only-review.yml`, and `native-capability-probe.yml` remain byte-identical at blobs `228a2bcd48b315363af1a19e72497d96f1c60526`, `b0acaad341f5394e2b4a83bea253208f6a092936`, `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`, and `0162b90496b366c1370cb28546e6e46e1955d0dd`. All four real release jobs remain literal-disabled.
+- No live capability PASS, credential creation/read/copy/storage, dispatch/rerun/cancel, native approval, environment/secret/variable/permission/policy mutation, app write, provider/registry/host/business/email action, merge, publication or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review the updated controller PR #17 and its exact-final-head CI. Merge, credential provisioning, live dispatch/native approval, literal stop-gate removal, publication and deploy remain separately authorized future work.
+
 ## 2026-11-17 — issue #434 protected controller Administration-read preflight candidate
 
 - Branch `feat/issue-434-admin-read-preflight` is based exactly on controller `main` `5e41500c97e3befff031478983fadb829c570a47` (tree `96594f2f4e33247fc4a826f3731a055fb7f115b0`) after confirming no open controller PR. Private app `staging` remains read-only at `798ada90d2b6461a59d4b495ca3798b110b1a2e6`; no app file or ref was changed.

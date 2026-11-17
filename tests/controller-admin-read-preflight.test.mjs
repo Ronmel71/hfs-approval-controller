@@ -7,6 +7,7 @@ import { validateProbeRequest } from "../scripts/native-capability-probe.mjs";
 import {
   ADMIN_READ_POLICY,
   adminReadRunTitle,
+  cli,
   finalizeAdminReadRequest,
   readMainProtection,
   validateAdminReadEvidence,
@@ -23,6 +24,8 @@ const deployWorkflow = readFileSync(new URL("../.github/workflows/release-deploy
 const stageWorkflow = readFileSync(new URL("../.github/workflows/stage-only-review.yml", import.meta.url));
 const gitBlob = (bytes) => createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
 const originalFetch = globalThis.fetch;
+const originalStdoutWrite = process.stdout.write;
+const originalStderrWrite = process.stderr.write;
 
 function fixture(target = "image") {
   return finalizeAdminReadRequest({
@@ -147,9 +150,106 @@ function evidence(request) {
   };
 }
 
+function jsonResponse(value, status = 200) {
+  return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+}
+
+async function runVerifyAdminReadCli({
+  protection = evidence(fixture()).branchProtection,
+  protectionStatus = 200,
+  omitToken = false,
+  mutateEvidence = () => {},
+  mutateSource = () => {},
+} = {}) {
+  const nowEpoch = Math.floor(Date.now() / 1000);
+  const request = finalizeAdminReadRequest({
+    ...fixture(),
+    createdAtEpoch: nowEpoch - 120,
+    expiresAtEpoch: nowEpoch + 600,
+  });
+  const native = evidence(request);
+  native.nowEpoch = nowEpoch;
+  native.run.created_at = new Date((nowEpoch - 100) * 1000).toISOString();
+  Object.assign(native.jobInventory.jobs[0], {
+    created_at: new Date((nowEpoch - 100) * 1000).toISOString(),
+    started_at: new Date((nowEpoch - 95) * 1000).toISOString(),
+    completed_at: new Date((nowEpoch - 90) * 1000).toISOString(),
+  });
+  Object.assign(native.jobInventory.jobs[1], {
+    created_at: new Date((nowEpoch - 89) * 1000).toISOString(),
+    started_at: new Date((nowEpoch - 60) * 1000).toISOString(),
+  });
+  mutateEvidence(native);
+  const providerRun = {
+    ...native.run,
+    repository: { full_name: ADMIN_READ_POLICY.controllerRepository, private: false, fork: false },
+    head_repository: { full_name: ADMIN_READ_POLICY.controllerRepository, fork: false },
+    path: `${ADMIN_READ_POLICY.workflow}@${request.controller.head}`,
+    actor: { login: request.run.actor, id: request.run.actorId },
+    triggering_actor: { login: request.run.triggeringActor, id: request.run.triggeringActorId },
+    pull_requests: [],
+    display_title: adminReadRunTitle(request),
+  };
+  const source = (path, shaValue) => ({ type: "file", path, sha: shaValue });
+  const sources = {
+    workflow: source(ADMIN_READ_POLICY.workflow, request.controller.workflowBlob),
+    script: source(ADMIN_READ_POLICY.script, request.controller.scriptBlob),
+  };
+  mutateSource(sources);
+  const env = {
+    GH_TOKEN: "synthetic-workflow-token",
+    GITHUB_RUN_ID: request.run.id,
+    HFS_ADMIN_READ_TARGET: request.target,
+    HFS_ADMIN_READ_NONCE: request.nonce,
+    HFS_ADMIN_READ_CREATED_AT_EPOCH: String(request.createdAtEpoch),
+    HFS_ADMIN_READ_EXPIRES_AT_EPOCH: String(request.expiresAtEpoch),
+    HFS_ADMIN_READ_CONTROLLER_HEAD: request.controller.head,
+    HFS_ADMIN_READ_WORKFLOW_BLOB: request.controller.workflowBlob,
+    HFS_ADMIN_READ_SCRIPT_BLOB: request.controller.scriptBlob,
+    HFS_ADMIN_READ_REQUEST_ID: request.requestId,
+    ...(omitToken ? {} : { HFS_CONTROLLER_ADMIN_READ_TOKEN: "synthetic-admin-read-token" }),
+  };
+  Object.assign(process.env, env);
+  if (omitToken) delete process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN;
+
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(`/repos/${ADMIN_READ_POLICY.controllerRepository}`, "");
+    if (path === `/actions/runs/${request.run.id}`) return jsonResponse(providerRun);
+    if (path === "/actions/runs" && parsed.searchParams.get("event") === "workflow_dispatch") {
+      return jsonResponse({ total_count: 1, workflow_runs: [providerRun] });
+    }
+    if (path === `/actions/runs/${request.run.id}/approvals`) return jsonResponse(native.approvals);
+    if (path === `/actions/runs/${request.run.id}/attempts/1/jobs`) return jsonResponse(native.jobInventory);
+    if (path === `/environments/${encodeURIComponent(ADMIN_READ_POLICY.targets.image.environment)}`) return jsonResponse(native.environment);
+    if (path === `/contents/${ADMIN_READ_POLICY.workflow}`) return jsonResponse(sources.workflow);
+    if (path === `/contents/${ADMIN_READ_POLICY.script}`) return jsonResponse(sources.script);
+    if (path === "/branches/main/protection") {
+      return protectionStatus === 200 ? jsonResponse(protection) : new Response(null, { status: protectionStatus });
+    }
+    throw new Error(`unexpected mocked provider request: ${url}`);
+  };
+
+  let stdout = "";
+  let stderr = "";
+  process.stdout.write = (chunk) => { stdout += String(chunk); return true; };
+  process.stderr.write = (chunk) => { stderr += String(chunk); return true; };
+  try {
+    const exitCode = await cli(["node", "controller-admin-read-preflight.mjs", "verify-admin-read"]);
+    return { exitCode, stdout, stderr };
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+    for (const key of Object.keys(env)) delete process.env[key];
+    delete process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN;
+  }
+}
+
 afterEach(() => {
   delete process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN;
   globalThis.fetch = originalFetch;
+  process.stdout.write = originalStdoutWrite;
+  process.stderr.write = originalStderrWrite;
 });
 
 describe("Administration-read request contract", () => {
@@ -235,6 +335,27 @@ describe("shared native and main-protection evidence", () => {
 });
 
 describe("isolated Administration-read provider call", () => {
+  it("runs the real verify-admin-read CLI boundary and fails closed on provider or native drift", async () => {
+    const pass = await runVerifyAdminReadCli();
+    assert.equal(pass.exitCode, 0, pass.stderr);
+    assert.match(pass.stdout, /^ADMIN_READ_PREFLIGHT_PASS .*enforce_admins=true allow_force_pushes=false allow_deletions=false/m);
+    assert.equal(pass.stderr, "");
+
+    for (const [name, options, code] of [
+      ["raw policy drift", { protection: { ...evidence(fixture()).branchProtection, enforce_admins: { enabled: false } } }, "NATIVE_MAIN_PROTECTION"],
+      ["malformed provider response", { protection: { protected: true } }, "NATIVE_MAIN_PROTECTION"],
+      ["denied provider response", { protectionStatus: 403 }, "ADMIN_READ_PROTECTION_HTTP_403"],
+      ["missing dedicated token", { omitToken: true }, "ADMIN_READ_TOKEN_UNCONFIGURED"],
+      ["wrong native evidence", { mutateEvidence: (item) => { item.approvals[0].user.id = 1; } }, "NATIVE_APPROVAL"],
+      ["wrong source evidence", { mutateSource: (sourceItems) => { sourceItems.script.sha = sha("e", 40); } }, "ADMIN_READ_SOURCE"],
+    ]) {
+      const refusal = await runVerifyAdminReadCli(options);
+      assert.equal(refusal.exitCode, 78, name);
+      assert.equal(refusal.stdout, "", name);
+      assert.match(refusal.stderr, new RegExp(`^ADMIN_READ_PREFLIGHT_REFUSED code=${code}$`, "m"), name);
+    }
+  });
+
   it("uses the dedicated token only for the fixed read-only protection GET", async () => {
     process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN = "synthetic-admin-read-token";
     globalThis.fetch = async (url, init) => {
@@ -245,10 +366,10 @@ describe("isolated Administration-read provider call", () => {
       assert.equal(init.headers.Authorization, "Bearer synthetic-admin-read-token");
       return new Response(JSON.stringify(evidence(fixture()).branchProtection), { status: 200, headers: { "content-type": "application/json" } });
     };
-    assert.equal((await readMainProtection()).enforceAdmins, true);
+    assert.equal((await readMainProtection()).enforce_admins.enabled, true);
   });
 
-  it("fails closed for missing credential, denial, non-JSON, malformed JSON, and policy drift", async () => {
+  it("fails closed for missing credential, denial, non-JSON, and malformed JSON", async () => {
     await assert.rejects(readMainProtection(), /ADMIN_READ_TOKEN_UNCONFIGURED/);
     process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN = "synthetic-admin-read-token";
     for (const [response, code] of [
@@ -258,7 +379,6 @@ describe("isolated Administration-read provider call", () => {
       [new Response(null, { status: 429 }), "ADMIN_READ_PROTECTION_HTTP_429"],
       [new Response("not-json", { status: 200, headers: { "content-type": "text/plain" } }), "ADMIN_READ_PROTECTION_CONTENT_TYPE"],
       [new Response("{", { status: 200, headers: { "content-type": "application/json" } }), "ADMIN_READ_PROTECTION_JSON"],
-      [new Response(JSON.stringify({ protected: true }), { status: 200, headers: { "content-type": "application/json" } }), "NATIVE_MAIN_PROTECTION"],
     ]) {
       globalThis.fetch = async () => response;
       await assert.rejects(readMainProtection(), new RegExp(code));
