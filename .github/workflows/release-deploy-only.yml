@@ -134,9 +134,7 @@ jobs:
 
   release-deploy-only:
     name: Native approval · RELEASE_DEPLOY_ONLY · ${{ inputs.app_commit }}
-    # Absolute stop-gate. A later exact-SHA code task may replace this only after
-    # this distinct public controller environment is independently proven protected.
-    if: ${{ false }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71' }}
     needs: validate-request
     runs-on: ubuntu-24.04
     timeout-minutes: 30
