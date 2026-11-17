@@ -259,9 +259,14 @@ export function validateNativeApprovalEvidence(request, {
     expectedEnvironmentName: purposePolicy.environment,
     expectedProtectedJobName: `${purposePolicy.protectedJobName} · ${request.app.commit}`,
   });
+  validateMainProtectionEvidence(branchProtection);
+  return result;
+}
+
+export function validateMainProtectionEvidence(branchProtection) {
   if (!isObject(branchProtection) || branchProtection.enforce_admins?.enabled !== true ||
       branchProtection.allow_force_pushes?.enabled !== false || branchProtection.allow_deletions?.enabled !== false) refuse("NATIVE_MAIN_PROTECTION");
-  return result;
+  return Object.freeze({ enforceAdmins: true, allowForcePushes: false, allowDeletions: false });
 }
 
 export function finalizeRequest(request) {
