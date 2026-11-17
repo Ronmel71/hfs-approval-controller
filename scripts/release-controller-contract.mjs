@@ -26,8 +26,8 @@ export const POLICY = Object.freeze({
       workflow: ".github/workflows/release-image-only.yml",
       executor: "scripts/release-image-only.sh",
       environment: "production-image-publication",
-      // Pin the real numeric ID only in a separately reviewed activation change.
-      environmentId: null,
+      environmentId: 27579543667,
+      protectedJobName: "Native approval · RELEASE_IMAGE_ONLY",
       secrets: Object.freeze(["HFS_GHCR_PUBLISH_TOKEN", "HFS_PRIVATE_SOURCE_READ_TOKEN"]),
     }),
     RELEASE_DEPLOY_ONLY: Object.freeze({
@@ -35,8 +35,8 @@ export const POLICY = Object.freeze({
       workflow: ".github/workflows/release-deploy-only.yml",
       executor: "scripts/release-deploy-only.sh",
       environment: "production-host-deployment",
-      // Pin the real numeric ID only in a separately reviewed activation change.
-      environmentId: null,
+      environmentId: 27579657157,
+      protectedJobName: "Native approval · RELEASE_DEPLOY_ONLY",
       secrets: Object.freeze([
         "DEPLOY_SSH_KEY",
         "DEPLOY_SSH_KNOWN_HOSTS",
@@ -166,6 +166,7 @@ export function validateRequest(request, { nowEpoch = Math.floor(Date.now() / 10
 export function validateNativeApprovalEvidence(request, {
   run,
   approvals,
+  jobInventory,
   environment,
   branchProtection,
   expectedEnvironmentId = POLICY.purposes[request.purpose]?.environmentId,
@@ -185,10 +186,44 @@ export function validateNativeApprovalEvidence(request, {
   if (!isObject(approval) || approval.state !== "approved" || approval.user?.login !== POLICY.reviewer ||
       approval.user?.id !== POLICY.reviewerId || !Array.isArray(approval.environments) || approval.environments.length !== 1 ||
       approval.environments[0]?.name !== purposePolicy.environment || approval.environments[0]?.id !== expectedEnvironmentId) refuse("NATIVE_APPROVAL");
-  const approvalAt = epoch(approval.submitted_at ?? approval.created_at, "NATIVE_APPROVAL_TIMESTAMP_UNAVAILABLE");
-  if (approvalAt < runCreated || approvalAt < request.createdAtEpoch || approvalAt >= request.expiresAtEpoch || approvalAt > nowEpoch) refuse("NATIVE_APPROVAL_FRESHNESS");
-  if (run.status === "completed" && approvalAt > epoch(run.updated_at, "NATIVE_RUN_TIMESTAMP")) refuse("NATIVE_APPROVAL_FRESHNESS");
-  if (!allowHistorical && request.expiresAtEpoch <= nowEpoch) refuse("NATIVE_APPROVAL_FRESHNESS");
+  if (!isObject(jobInventory) || !Number.isSafeInteger(jobInventory.total_count) ||
+      !Array.isArray(jobInventory.jobs) || jobInventory.total_count !== jobInventory.jobs.length ||
+      jobInventory.jobs.length !== 2) refuse("NATIVE_JOB_INVENTORY");
+  const ids = new Set();
+  for (const job of jobInventory.jobs) {
+    if (!Number.isSafeInteger(job?.id) || ids.has(job.id)) refuse("NATIVE_JOB_INVENTORY");
+    ids.add(job.id);
+    if (String(job.run_id) !== String(run.id) || job.run_attempt !== 1 || job.head_sha !== request.controller.head ||
+        job.head_branch !== "main" || job.run_url !== `https://api.github.com/repos/${POLICY.controllerRepository}/actions/runs/${run.id}`) {
+      refuse("NATIVE_JOB_PROVENANCE");
+    }
+  }
+  const validationJobs = jobInventory.jobs.filter((job) => job.name === "validate-request");
+  const expectedProtectedJobName = `${purposePolicy.protectedJobName} · ${request.app.commit}`;
+  const protectedJobs = jobInventory.jobs.filter((job) => job.name === expectedProtectedJobName);
+  if (validationJobs.length !== 1 || protectedJobs.length !== 1) refuse("NATIVE_JOB_IDENTITY");
+  const validationJob = validationJobs[0];
+  const protectedJob = protectedJobs[0];
+  const validationCreated = epoch(validationJob.created_at, "NATIVE_JOB_TIMESTAMP");
+  const validationStarted = epoch(validationJob.started_at, "NATIVE_JOB_TIMESTAMP");
+  const validationCompleted = epoch(validationJob.completed_at, "NATIVE_JOB_TIMESTAMP");
+  const protectedCreated = epoch(protectedJob.created_at, "NATIVE_JOB_TIMESTAMP");
+  const protectedStarted = epoch(protectedJob.started_at, "NATIVE_JOB_TIMESTAMP");
+  if (validationJob.status !== "completed" || validationJob.conclusion !== "success" ||
+      validationCreated < runCreated || validationStarted < validationCreated || validationCompleted < validationStarted ||
+      validationCompleted > protectedStarted || protectedCreated < runCreated ||
+      protectedStarted < protectedCreated || protectedStarted >= request.expiresAtEpoch || protectedStarted > nowEpoch) {
+    refuse("NATIVE_JOB_ORDER");
+  }
+  if (allowHistorical) {
+    const protectedCompleted = epoch(protectedJob.completed_at, "NATIVE_JOB_TIMESTAMP");
+    if (run.status !== "completed" || run.conclusion !== "success" || protectedJob.status !== "completed" ||
+        protectedJob.conclusion !== "success" || protectedCompleted < protectedStarted ||
+        protectedCompleted >= request.expiresAtEpoch || protectedCompleted > nowEpoch) refuse("NATIVE_JOB_ORDER");
+  } else if (run.status !== "in_progress" || protectedJob.status !== "in_progress" ||
+      protectedJob.conclusion !== null || protectedJob.completed_at !== null || request.expiresAtEpoch <= nowEpoch) {
+    refuse("NATIVE_APPROVAL_FRESHNESS");
+  }
   if (!isObject(environment) || environment.name !== purposePolicy.environment || environment.id !== expectedEnvironmentId ||
       environment.can_admins_bypass !== false || !Array.isArray(environment.protection_rules)) refuse("NATIVE_ENVIRONMENT");
   const reviewerRules = environment.protection_rules.filter((rule) => rule?.type === "required_reviewers");
@@ -201,7 +236,14 @@ export function validateNativeApprovalEvidence(request, {
       environment.deployment_branch_policy?.custom_branch_policies !== false) refuse("NATIVE_BRANCH_POLICY");
   if (!isObject(branchProtection) || branchProtection.enforce_admins?.enabled !== true ||
       branchProtection.allow_force_pushes?.enabled !== false || branchProtection.allow_deletions?.enabled !== false) refuse("NATIVE_MAIN_PROTECTION");
-  return Object.freeze({ environment: purposePolicy.environment, environmentId: expectedEnvironmentId, reviewerId: POLICY.reviewerId, approvedAtEpoch: approvalAt });
+  return Object.freeze({
+    environment: purposePolicy.environment,
+    environmentId: expectedEnvironmentId,
+    reviewerId: POLICY.reviewerId,
+    approvalNotBeforeEpoch: runCreated,
+    approvalNotAfterEpoch: protectedStarted,
+    protectedJobId: protectedJob.id,
+  });
 }
 
 export function finalizeRequest(request) {

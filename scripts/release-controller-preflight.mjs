@@ -91,6 +91,33 @@ async function completeInventory() {
   refuse("PREFLIGHT_INVENTORY_INCOMPLETE");
 }
 
+async function completeAttemptJobInventory(runId) {
+  const jobs = [];
+  const ids = new Set();
+  let total;
+  let firstPageIds;
+  for (let page = 1; page <= 10; page += 1) {
+    const result = await getJson(`/actions/runs/${runId}/attempts/1/jobs?per_page=100&page=${page}`);
+    if (!Number.isSafeInteger(result.total_count) || !Array.isArray(result.jobs)) refuse("PREFLIGHT_JOB_INVENTORY");
+    if (total === undefined) total = result.total_count;
+    if (result.total_count !== total) refuse("PREFLIGHT_JOB_INVENTORY_DRIFT");
+    if (page === 1) firstPageIds = result.jobs.map((job) => job.id);
+    for (const job of result.jobs) {
+      if (!Number.isSafeInteger(job.id) || ids.has(job.id)) refuse("PREFLIGHT_JOB_INVENTORY");
+      ids.add(job.id);
+      jobs.push(job);
+    }
+    if (result.jobs.length < 100) {
+      if (ids.size !== total) refuse("PREFLIGHT_JOB_INVENTORY_INCOMPLETE");
+      const confirm = await getJson(`/actions/runs/${runId}/attempts/1/jobs?per_page=100&page=1`);
+      if (confirm.total_count !== total || !Array.isArray(confirm.jobs) ||
+          JSON.stringify(confirm.jobs.map((job) => job.id)) !== JSON.stringify(firstPageIds)) refuse("PREFLIGHT_JOB_INVENTORY_DRIFT");
+      return { total_count: total, jobs };
+    }
+  }
+  refuse("PREFLIGHT_JOB_INVENTORY_INCOMPLETE");
+}
+
 function appPins(commit = required("HFS_APP_COMMIT"), tree = required("HFS_APP_TREE")) {
   return {
     repository: POLICY.appRepository,
@@ -231,14 +258,16 @@ function validateConsumerInventory(request, runs) {
 async function readNativeEvidence(request, run, expectedEnvironmentId, { allowHistorical = false } = {}) {
   const purposePolicy = POLICY.purposes[request.purpose];
   const adminReadToken = process.env.HFS_CONTROLLER_ADMIN_READ_TOKEN || refuse("PREFLIGHT_ADMIN_READ_TOKEN_UNCONFIGURED");
-  const [approvals, environment, branchProtection] = await Promise.all([
+  const [approvals, jobInventory, environment, branchProtection] = await Promise.all([
     getJson(`/actions/runs/${run.id}/approvals`),
+    completeAttemptJobInventory(run.id),
     getJson(`/environments/${encodeURIComponent(purposePolicy.environment)}`),
     getJson("/branches/main/protection", { token: adminReadToken, errorPrefix: "PREFLIGHT_ADMIN_READ" }),
   ]);
   return validateNativeApprovalEvidence(request, {
     run,
     approvals,
+    jobInventory,
     environment,
     branchProtection,
     expectedEnvironmentId,
