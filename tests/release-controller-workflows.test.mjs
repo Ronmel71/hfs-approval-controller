@@ -11,17 +11,23 @@ const preflightScript = readFileSync(new URL("../scripts/release-controller-pref
 const existingGate = readFileSync(new URL("../.github/workflows/stage-only-review.yml", import.meta.url));
 const gitBlob = (bytes) => createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
 
-describe("dormant controller workflows", () => {
+describe("two-purpose controller workflows", () => {
   it("preserves the verified existing native-review workflow byte-for-byte", () => {
     assert.equal(gitBlob(existingGate), "8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4");
   });
 
-  it("keeps every credential or artifact producing job literal-disabled", () => {
-    assert.match(image, /  release-image-only:\n(?:.|\n)*?    if: \$\{\{ false \}\}/);
+  it("activates only the image job behind the exact strict pre-gate condition", () => {
+    const strictImageCondition = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71'";
+    const imageConditions = [...image.matchAll(/^\s+if: \$\{\{ (.+) \}\}$/gm)].map((match) => match[1]);
+
+    assert.deepEqual(imageConditions, [strictImageCondition, strictImageCondition]);
+    assert.doesNotMatch(image, /if: \$\{\{ false \}\}/);
     assert.match(deploy, /  release-deploy-only:\n(?:.|\n)*?    if: \$\{\{ false \}\}/);
-    assert.equal(image.match(/if: \$\{\{ false \}\}/g)?.length, 1);
     assert.equal(deploy.match(/if: \$\{\{ false \}\}/g)?.length, 1);
     assert.doesNotMatch(image + deploy, /^  (pull_request|pull_request_target|push|schedule|repository_dispatch):/m);
+    assert.match(image, /  release-image-only:\n(?:.|\n)*?    needs: validate-request/);
+    assert.match(image, /environment: production-image-publication/);
+    assert.doesNotMatch(image, /RELEASE_DEPLOY_ONLY|APPROVE_DEPLOY|production-host-deployment|release-deploy-only/);
   });
 
   it("puts distinct native environments on the credential-bearing jobs before any secret use", () => {

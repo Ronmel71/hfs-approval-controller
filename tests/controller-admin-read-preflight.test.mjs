@@ -19,7 +19,6 @@ const sha = (character, length = 64) => character.repeat(length);
 const workflow = readFileSync(new URL("../.github/workflows/controller-admin-read-preflight.yml", import.meta.url), "utf8");
 const script = readFileSync(new URL("../scripts/controller-admin-read-preflight.mjs", import.meta.url), "utf8");
 const harmlessWorkflow = readFileSync(new URL("../.github/workflows/native-capability-probe.yml", import.meta.url));
-const imageWorkflow = readFileSync(new URL("../.github/workflows/release-image-only.yml", import.meta.url));
 const deployWorkflow = readFileSync(new URL("../.github/workflows/release-deploy-only.yml", import.meta.url));
 const stageWorkflow = readFileSync(new URL("../.github/workflows/stage-only-review.yml", import.meta.url));
 const gitBlob = (bytes) => createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
@@ -415,8 +414,7 @@ describe("manual protected workflow isolation", () => {
     assert.doesNotMatch(script, /RELEASE_CONTROLLER_REQUEST_VALID|RELEASE_CONTROLLER_NATIVE_APPROVAL_VERIFIED|NATIVE_PROBE_PASS/);
   });
 
-  it("preserves every protected workflow required by the issue byte-for-byte", () => {
-    assert.equal(gitBlob(imageWorkflow), "228a2bcd48b315363af1a19e72497d96f1c60526");
+  it("preserves every out-of-scope protected workflow required by the issue byte-for-byte", () => {
     assert.equal(gitBlob(deployWorkflow), "b0acaad341f5394e2b4a83bea253208f6a092936");
     assert.equal(gitBlob(stageWorkflow), "8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4");
     assert.equal(gitBlob(harmlessWorkflow), "0162b90496b366c1370cb28546e6e46e1955d0dd");

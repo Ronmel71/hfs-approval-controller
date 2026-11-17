@@ -100,9 +100,9 @@ jobs:
 
   release-image-only:
     name: Native approval · RELEASE_IMAGE_ONLY · ${{ inputs.app_commit }}
-    # Absolute stop-gate. A later exact-SHA code task may replace this only after
-    # the public controller environment is independently proven protected.
-    if: ${{ false }}
+    # Candidate activation remains bound to the same strict manual/main/first-attempt
+    # Ronny-only conditions as the credential-free request validator.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71' }}
     needs: validate-request
     runs-on: ubuntu-24.04
     timeout-minutes: 30
