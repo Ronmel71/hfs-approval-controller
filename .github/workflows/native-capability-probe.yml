@@ -1,0 +1,121 @@
+name: Harmless native approval capability probe
+run-name: Native capability probe · ${{ inputs.target }} · ${{ inputs.request_id }} · ${{ inputs.nonce }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Fixed purpose-specific environment selector
+        required: true
+        type: choice
+        options:
+          - image
+          - deploy
+      request_id:
+        description: Canonical 64-hex probe request binding
+        required: true
+        type: string
+      nonce:
+        description: Fresh one-use 64-hex probe nonce
+        required: true
+        type: string
+      created_at_epoch:
+        description: Probe request creation epoch
+        required: true
+        type: string
+      expires_at_epoch:
+        description: Expiry no later than 30 minutes after creation
+        required: true
+        type: string
+      controller_head:
+        description: Exact reviewed controller main SHA
+        required: true
+        type: string
+      controller_workflow_blob:
+        description: Exact blob of this workflow at controller_head
+        required: true
+        type: string
+      controller_probe_script_blob:
+        description: Exact native-capability-probe.mjs blob at controller_head
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: native-capability-probe-${{ inputs.target }}-${{ inputs.request_id }}-${{ inputs.nonce }}
+  cancel-in-progress: false
+
+jobs:
+  validate-request:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71' && (inputs.target == 'image' || inputs.target == 'deploy') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact public controller source without retained credential
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate exact source, freshness, and unique probe request
+        env:
+          TARGET: ${{ inputs.target }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          NONCE: ${{ inputs.nonce }}
+          CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          CONTROLLER_PROBE_SCRIPT_BLOB: ${{ inputs.controller_probe_script_blob }}
+          GH_TOKEN: ${{ github.token }}
+          HFS_PROBE_TARGET: ${{ inputs.target }}
+          HFS_PROBE_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_PROBE_NONCE: ${{ inputs.nonce }}
+          HFS_PROBE_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_PROBE_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_PROBE_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_PROBE_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_PROBE_SCRIPT_BLOB: ${{ inputs.controller_probe_script_blob }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET" = image || "$TARGET" = deploy ]]
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$NONCE" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$CREATED_AT_EPOCH" =~ ^[0-9]{10}$ ]]
+          [[ "$EXPIRES_AT_EPOCH" =~ ^[0-9]{10}$ ]]
+          (( EXPIRES_AT_EPOCH > CREATED_AT_EPOCH ))
+          (( EXPIRES_AT_EPOCH - CREATED_AT_EPOCH <= 1800 ))
+          [[ "$CONTROLLER_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$CONTROLLER_HEAD" = "$GITHUB_SHA"
+          test "$CONTROLLER_WORKFLOW_BLOB" = "$(git rev-parse HEAD:.github/workflows/native-capability-probe.yml)"
+          test "$CONTROLLER_PROBE_SCRIPT_BLOB" = "$(git rev-parse HEAD:scripts/native-capability-probe.mjs)"
+          node scripts/native-capability-probe.mjs validate-request
+
+  native-probe:
+    name: Native capability probe · ${{ inputs.target }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71' && (inputs.target == 'image' || inputs.target == 'deploy') }}
+    needs: validate-request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.target == 'image' && 'production-image-publication' || 'production-host-deployment' }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out exact public controller source without retained credential
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Read and verify authentic native capability evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HFS_PROBE_TARGET: ${{ inputs.target }}
+          HFS_PROBE_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_PROBE_NONCE: ${{ inputs.nonce }}
+          HFS_PROBE_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_PROBE_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_PROBE_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_PROBE_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_PROBE_SCRIPT_BLOB: ${{ inputs.controller_probe_script_blob }}
+        run: node scripts/native-capability-probe.mjs verify-native-probe

@@ -163,29 +163,33 @@ export function validateRequest(request, { nowEpoch = Math.floor(Date.now() / 10
   return Object.freeze({ purpose: request.purpose, requestId: request.requestId, appCommit: request.app.commit });
 }
 
-export function validateNativeApprovalEvidence(request, {
+export function validateNativeGateEvidence(request, {
   run,
   approvals,
   jobInventory,
   environment,
-  branchProtection,
-  expectedEnvironmentId = POLICY.purposes[request.purpose]?.environmentId,
+  expectedEnvironmentId,
+  expectedEnvironmentName,
+  expectedProtectedJobName,
+  controllerRepository = POLICY.controllerRepository,
+  reviewer = POLICY.reviewer,
+  reviewerId = POLICY.reviewerId,
   nowEpoch = Math.floor(Date.now() / 1000),
   allowHistorical = false,
 } = {}) {
-  const purposePolicy = POLICY.purposes[request.purpose] || refuse("NATIVE_PURPOSE");
   if (!Number.isSafeInteger(expectedEnvironmentId)) refuse("NATIVE_ENVIRONMENT_ID_UNCONFIGURED");
+  if (typeof expectedEnvironmentName !== "string" || typeof expectedProtectedJobName !== "string") refuse("NATIVE_PURPOSE");
   if (!isObject(run) || String(run.id) !== String(request.run.id) || run.run_attempt !== 1 ||
       run.event !== "workflow_dispatch" || run.head_branch !== "main" || run.head_sha !== request.controller.head ||
-      run.repository?.full_name !== POLICY.controllerRepository ||
+      run.repository?.full_name !== controllerRepository ||
       (run.status !== "in_progress" && run.status !== "completed")) refuse("NATIVE_RUN");
   const runCreated = epoch(run.created_at, "NATIVE_RUN_TIMESTAMP");
   if (runCreated < request.createdAtEpoch || runCreated >= request.expiresAtEpoch || runCreated > nowEpoch) refuse("NATIVE_RUN_TIMESTAMP");
   if (!Array.isArray(approvals) || approvals.length !== 1) refuse("NATIVE_APPROVAL_COUNT");
   const approval = approvals[0];
-  if (!isObject(approval) || approval.state !== "approved" || approval.user?.login !== POLICY.reviewer ||
-      approval.user?.id !== POLICY.reviewerId || !Array.isArray(approval.environments) || approval.environments.length !== 1 ||
-      approval.environments[0]?.name !== purposePolicy.environment || approval.environments[0]?.id !== expectedEnvironmentId) refuse("NATIVE_APPROVAL");
+  if (!isObject(approval) || approval.state !== "approved" || approval.user?.login !== reviewer ||
+      approval.user?.id !== reviewerId || !Array.isArray(approval.environments) || approval.environments.length !== 1 ||
+      approval.environments[0]?.name !== expectedEnvironmentName || approval.environments[0]?.id !== expectedEnvironmentId) refuse("NATIVE_APPROVAL");
   if (!isObject(jobInventory) || !Number.isSafeInteger(jobInventory.total_count) ||
       !Array.isArray(jobInventory.jobs) || jobInventory.total_count !== jobInventory.jobs.length ||
       jobInventory.jobs.length !== 2) refuse("NATIVE_JOB_INVENTORY");
@@ -194,12 +198,11 @@ export function validateNativeApprovalEvidence(request, {
     if (!Number.isSafeInteger(job?.id) || ids.has(job.id)) refuse("NATIVE_JOB_INVENTORY");
     ids.add(job.id);
     if (String(job.run_id) !== String(run.id) || job.run_attempt !== 1 || job.head_sha !== request.controller.head ||
-        job.head_branch !== "main" || job.run_url !== `https://api.github.com/repos/${POLICY.controllerRepository}/actions/runs/${run.id}`) {
+        job.head_branch !== "main" || job.run_url !== `https://api.github.com/repos/${controllerRepository}/actions/runs/${run.id}`) {
       refuse("NATIVE_JOB_PROVENANCE");
     }
   }
   const validationJobs = jobInventory.jobs.filter((job) => job.name === "validate-request");
-  const expectedProtectedJobName = `${purposePolicy.protectedJobName} · ${request.app.commit}`;
   const protectedJobs = jobInventory.jobs.filter((job) => job.name === expectedProtectedJobName);
   if (validationJobs.length !== 1 || protectedJobs.length !== 1) refuse("NATIVE_JOB_IDENTITY");
   const validationJob = validationJobs[0];
@@ -224,26 +227,41 @@ export function validateNativeApprovalEvidence(request, {
       protectedJob.conclusion !== null || protectedJob.completed_at !== null || request.expiresAtEpoch <= nowEpoch) {
     refuse("NATIVE_APPROVAL_FRESHNESS");
   }
-  if (!isObject(environment) || environment.name !== purposePolicy.environment || environment.id !== expectedEnvironmentId ||
+  if (!isObject(environment) || environment.name !== expectedEnvironmentName || environment.id !== expectedEnvironmentId ||
       environment.can_admins_bypass !== false || !Array.isArray(environment.protection_rules)) refuse("NATIVE_ENVIRONMENT");
   const reviewerRules = environment.protection_rules.filter((rule) => rule?.type === "required_reviewers");
   const branchRules = environment.protection_rules.filter((rule) => rule?.type === "branch_policy");
   if (reviewerRules.length !== 1 || branchRules.length !== 1 || reviewerRules[0].prevent_self_review !== false ||
       !Array.isArray(reviewerRules[0].reviewers) || reviewerRules[0].reviewers.length !== 1 ||
-      reviewerRules[0].reviewers[0]?.type !== "User" || reviewerRules[0].reviewers[0]?.reviewer?.login !== POLICY.reviewer ||
-      reviewerRules[0].reviewers[0]?.reviewer?.id !== POLICY.reviewerId) refuse("NATIVE_REVIEW_POLICY");
+      reviewerRules[0].reviewers[0]?.type !== "User" || reviewerRules[0].reviewers[0]?.reviewer?.login !== reviewer ||
+      reviewerRules[0].reviewers[0]?.reviewer?.id !== reviewerId) refuse("NATIVE_REVIEW_POLICY");
   if (environment.deployment_branch_policy?.protected_branches !== true ||
       environment.deployment_branch_policy?.custom_branch_policies !== false) refuse("NATIVE_BRANCH_POLICY");
-  if (!isObject(branchProtection) || branchProtection.enforce_admins?.enabled !== true ||
-      branchProtection.allow_force_pushes?.enabled !== false || branchProtection.allow_deletions?.enabled !== false) refuse("NATIVE_MAIN_PROTECTION");
   return Object.freeze({
-    environment: purposePolicy.environment,
+    environment: expectedEnvironmentName,
     environmentId: expectedEnvironmentId,
-    reviewerId: POLICY.reviewerId,
+    reviewerId,
     approvalNotBeforeEpoch: runCreated,
     approvalNotAfterEpoch: protectedStarted,
     protectedJobId: protectedJob.id,
   });
+}
+
+export function validateNativeApprovalEvidence(request, {
+  branchProtection,
+  expectedEnvironmentId = POLICY.purposes[request.purpose]?.environmentId,
+  ...evidence
+} = {}) {
+  const purposePolicy = POLICY.purposes[request.purpose] || refuse("NATIVE_PURPOSE");
+  const result = validateNativeGateEvidence(request, {
+    ...evidence,
+    expectedEnvironmentId,
+    expectedEnvironmentName: purposePolicy.environment,
+    expectedProtectedJobName: `${purposePolicy.protectedJobName} · ${request.app.commit}`,
+  });
+  if (!isObject(branchProtection) || branchProtection.enforce_admins?.enabled !== true ||
+      branchProtection.allow_force_pushes?.enabled !== false || branchProtection.allow_deletions?.enabled !== false) refuse("NATIVE_MAIN_PROTECTION");
+  return result;
 }
 
 export function finalizeRequest(request) {

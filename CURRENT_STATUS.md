@@ -1,5 +1,18 @@
 # Current status
 
+## 2026-11-17 — issue #433 harmless native capability probe candidate
+
+- Branch `feat/issue-433-native-capability-probe` is based exactly on controller `main` `81aaba6c8d64d0eef6972fe759a6c13aae9651b9` (tree `1b05645a78a145b0eb6203b0d51869e476cf3f47`) after confirming no open controller PR. The private app repository remained read-only. Protected `stage-only-review.yml`, `release-image-only.yml`, and `release-deploy-only.yml` retain blobs `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`, `228a2bcd48b315363af1a19e72497d96f1c60526`, and `b0acaad341f5394e2b4a83bea253208f6a092936`.
+- The candidate adds one manual-only, two-job read-only probe. Its enumerated `image`/`deploy` selector maps only to `production-image-publication` ID `27579543667` or `production-host-deployment` ID `27579657157`; request ID, nonce, 30-minute lifetime, exact controller head/workflow/script blobs, `main`, Ronny actor and triggering actor, attempt 1, and complete stable dispatch inventory are fail-closed bindings.
+- After Ronny's real native approval, the selected gated job uses only ephemeral `GITHUB_TOKEN` with `actions: read` and `contents: read` to read the current run, timestamp-free approval history, complete exact attempt-1 job inventory, named environment policy, and exact public-controller source. It has no secret, private-source, registry, host, signing, email, business-data, artifact, output, envelope, or release path. `NATIVE_PROBE_PASS` always carries `release_ready=false authorization=false`, and release contracts reject probe requests.
+- The probe reuses the existing pure native-gate evidence validator; full release verification still separately requires full protected-main readback. An ephemeral-token protection denial is reported as `ADMIN_READ_BLOCKED`, never replaced with public `protected: true` or synthetic input. If blocked, the unchanged release verifier still requires a separately approved controller-scoped GitHub App or fine-grained token with Administration read and no Administration write.
+- Authenticated read-only provider inspection reconfirmed both environment names/IDs, admin bypass off, prevent-self-review off, Ronny (`321374159`) as sole reviewer, protected-branches-only policy, and zero environment secrets/variables. Existing operator auth can read full current `main` protection, but future runner-token capability is intentionally unproven until an authorized live run.
+- Local verification passes all 151 Node tests, all controller shell/security contracts, Node/Bash syntax, workflow YAML parsing, exact pinned blobs, and changed-diff secret/security scans. Local `actionlint` is unavailable and is not claimed. No workflow dispatch/rerun/cancel, native approval, environment/reviewer/secret/variable/token/policy write, app write, registry/host/private-provider action, merge, publication, or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review controller PR #16. Merge and each independent future exact-post-merge-SHA `image` or `deploy` dispatch/native approval remain separate explicit approvals; Ronny performs the native approval himself, and no combined live PASS is promised.
+
 ## 2026-11-17 — issue #432 real environment IDs and bounded native-approval freshness
 
 - Branch `feat/issue-432-native-approval-bounds` is based exactly on protected controller `main` `5d5a34674227af58c377c2c22856f3ea28e56223` (tree `4f6cb393df0c870dbf069e6478e12d7fb3b9c666`). Private app `staging` was verified read-only at `798ada90d2b6461a59d4b495ca3798b110b1a2e6`; no app file or ref was changed. The protected `stage-only-review.yml` blob remains byte-identical `8d9cffac492d41804ff2dd5a5f1d09d4b925bbf4`.
