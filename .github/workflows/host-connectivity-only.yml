@@ -1,0 +1,158 @@
+name: Host connectivity only
+run-name: Host connectivity only · ${{ inputs.request_id }} · ${{ inputs.nonce }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      purpose:
+        description: Fixed read-only purpose
+        required: true
+        type: choice
+        options:
+          - HOST_CONNECTIVITY_ONLY
+      request_id:
+        description: Canonical 64-hex one-use request binding
+        required: true
+        type: string
+      nonce:
+        description: Fresh one-use 64-hex nonce
+        required: true
+        type: string
+      created_at_epoch:
+        description: Request creation epoch
+        required: true
+        type: string
+      expires_at_epoch:
+        description: Expiry no later than 30 minutes after creation
+        required: true
+        type: string
+      controller_head:
+        description: Exact reviewed protected-main controller SHA
+        required: true
+        type: string
+      controller_workflow_blob:
+        description: Exact host-connectivity-only workflow blob at controller_head
+        required: true
+        type: string
+      controller_guard_blob:
+        description: Exact host-connectivity-only.mjs blob at controller_head
+        required: true
+        type: string
+      controller_executor_blob:
+        description: Exact host-connectivity-only.sh blob at controller_head
+        required: true
+        type: string
+      remote_helper_sha256:
+        description: Exact reviewed read-only remote helper SHA-256
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: host-connectivity-only-${{ inputs.request_id }}-${{ inputs.nonce }}
+  cancel-in-progress: false
+
+jobs:
+  validate-request:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'Ronmel71/hfs-approval-controller' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71' && inputs.purpose == 'HOST_CONNECTIVITY_ONLY' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the exact public controller source without retained credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.controller_head }}
+          persist-credentials: false
+      - name: Validate exact read-only source, pins, freshness, and one-use request
+        env:
+          PURPOSE: ${{ inputs.purpose }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          NONCE: ${{ inputs.nonce }}
+          CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          CONTROLLER_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          CONTROLLER_GUARD_BLOB: ${{ inputs.controller_guard_blob }}
+          CONTROLLER_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+          REMOTE_HELPER_SHA256: ${{ inputs.remote_helper_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+          HFS_CONNECTIVITY_PURPOSE: ${{ inputs.purpose }}
+          HFS_CONNECTIVITY_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_CONNECTIVITY_NONCE: ${{ inputs.nonce }}
+          HFS_CONNECTIVITY_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_CONNECTIVITY_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONNECTIVITY_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_CONNECTIVITY_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONNECTIVITY_GUARD_BLOB: ${{ inputs.controller_guard_blob }}
+          HFS_CONNECTIVITY_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+          HFS_CONNECTIVITY_REMOTE_HELPER_SHA256: ${{ inputs.remote_helper_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$PURPOSE" = HOST_CONNECTIVITY_ONLY
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$NONCE" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$CREATED_AT_EPOCH" =~ ^[0-9]{10}$ ]]
+          [[ "$EXPIRES_AT_EPOCH" =~ ^[0-9]{10}$ ]]
+          (( EXPIRES_AT_EPOCH > CREATED_AT_EPOCH ))
+          (( EXPIRES_AT_EPOCH - CREATED_AT_EPOCH <= 1800 ))
+          test "$CONTROLLER_HEAD" = "$GITHUB_SHA"
+          test "$CONTROLLER_WORKFLOW_BLOB" = "$(git rev-parse HEAD:.github/workflows/host-connectivity-only.yml)"
+          test "$CONTROLLER_GUARD_BLOB" = "$(git rev-parse HEAD:scripts/host-connectivity-only.mjs)"
+          test "$CONTROLLER_EXECUTOR_BLOB" = "$(git rev-parse HEAD:scripts/host-connectivity-only.sh)"
+          test "$REMOTE_HELPER_SHA256" = 1889dea8df10f9dfd11f51fe845703758577b0f1af4ac6960fd5f846db4b0351
+          node scripts/host-connectivity-only.mjs validate-request
+
+  connectivity-check:
+    name: Native approval · HOST_CONNECTIVITY_ONLY
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'Ronmel71/hfs-approval-controller' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && github.actor == 'Ronmel71' && github.triggering_actor == 'Ronmel71' && inputs.purpose == 'HOST_CONNECTIVITY_ONLY' }}
+    needs: validate-request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production-host-deployment
+    steps:
+      - name: Check out the exact reviewed public controller source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.controller_head }}
+          persist-credentials: false
+      - name: Install official WireGuard tools only in this disposable gated runner
+        run: |
+          set -euo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install --yes wireguard-tools >/dev/null
+      - name: Final re-read of exact source, native approval, environment, protection, and freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HFS_CONTROLLER_ADMIN_READ_TOKEN: ${{ secrets.HFS_CONTROLLER_ADMIN_READ_TOKEN }}
+          HFS_CONNECTIVITY_PURPOSE: ${{ inputs.purpose }}
+          HFS_CONNECTIVITY_REQUEST_ID: ${{ inputs.request_id }}
+          HFS_CONNECTIVITY_NONCE: ${{ inputs.nonce }}
+          HFS_CONNECTIVITY_CREATED_AT_EPOCH: ${{ inputs.created_at_epoch }}
+          HFS_CONNECTIVITY_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONNECTIVITY_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_CONNECTIVITY_WORKFLOW_BLOB: ${{ inputs.controller_workflow_blob }}
+          HFS_CONNECTIVITY_GUARD_BLOB: ${{ inputs.controller_guard_blob }}
+          HFS_CONNECTIVITY_EXECUTOR_BLOB: ${{ inputs.controller_executor_blob }}
+          HFS_CONNECTIVITY_REMOTE_HELPER_SHA256: ${{ inputs.remote_helper_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$HFS_CONNECTIVITY_CONTROLLER_HEAD"
+          test "$(git rev-parse HEAD:.github/workflows/host-connectivity-only.yml)" = "$HFS_CONNECTIVITY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:scripts/host-connectivity-only.mjs)" = "$HFS_CONNECTIVITY_GUARD_BLOB"
+          test "$(git rev-parse HEAD:scripts/host-connectivity-only.sh)" = "$HFS_CONNECTIVITY_EXECUTOR_BLOB"
+          node scripts/host-connectivity-only.mjs verify-native-gate
+      - name: Run the fixed read-only host connectivity check
+        env:
+          DEPLOY_WIREGUARD_CONFIG: ${{ secrets.DEPLOY_WIREGUARD_CONFIG }}
+          DEPLOY_WIREGUARD_HOST: ${{ secrets.DEPLOY_WIREGUARD_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          HFS_CONNECTIVITY_PURPOSE: ${{ inputs.purpose }}
+          HFS_CONNECTIVITY_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
+          HFS_CONNECTIVITY_CONTROLLER_HEAD: ${{ inputs.controller_head }}
+          HFS_CONNECTIVITY_REMOTE_HELPER_SHA256: ${{ inputs.remote_helper_sha256 }}
+        run: scripts/host-connectivity-only.sh

@@ -51,7 +51,7 @@ trap cleanup EXIT
 [[ "$(git rev-parse HEAD:deploy/production/host/hfs-deploy-release)" == 76e408175ac0ff8b207665475f9f5d1240766738 ]] || die HELPER_BLOB
 [[ "$(git rev-parse HEAD:deploy/production/host/hfsdeploy-sudoers)" == baa83f6efe64faab8f12cb5f5a9b6a5665b51de8 ]] || die SUDOERS_BLOB
 
-wg_path="$RUNNER_TEMP/hfs-controller-wg.conf"
+wg_path="$RUNNER_TEMP/hfs-wg.conf"
 umask 077
 printf '%s\n' "$DEPLOY_WIREGUARD_CONFIG" > "$wg_path"
 if grep -Eiq '^[[:space:]]*(PreUp|PostUp|PreDown|PostDown|SaveConfig)[[:space:]]*=' "$wg_path"; then die WG_HOOK; fi
