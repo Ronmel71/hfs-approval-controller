@@ -48,7 +48,7 @@ trap cleanup EXIT
 [[ "$(git rev-parse HEAD:.github/workflows/production-release-approved.yml)" == "$HFS_APP_WORKFLOW_BLOB" ]] || die SOURCE_WORKFLOW
 [[ "$(git rev-parse HEAD:deploy/production/docker-compose.yml)" == aee2e09c124c02b89dce653b9d1f628c1ea00eb6 ]] || die COMPOSE_BLOB
 [[ "$(git rev-parse HEAD:deploy/production/Caddyfile)" == 3049dae5a81cc2396990ca986a97e5275f9a83dd ]] || die CADDY_BLOB
-[[ "$(git rev-parse HEAD:deploy/production/host/hfs-deploy-release)" == 6228f794a510b6f00139c5edc16d9a589a806006 ]] || die HELPER_BLOB
+[[ "$(git rev-parse HEAD:deploy/production/host/hfs-deploy-release)" == c7002bb6addfb826306657cd6d6ed98a6ed9c9a7 ]] || die HELPER_BLOB
 [[ "$(git rev-parse HEAD:deploy/production/host/hfsdeploy-sudoers)" == baa83f6efe64faab8f12cb5f5a9b6a5665b51de8 ]] || die SUDOERS_BLOB
 
 wg_path="$RUNNER_TEMP/hfs-wg.conf"
