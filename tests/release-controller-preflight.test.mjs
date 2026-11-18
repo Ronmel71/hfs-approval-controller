@@ -13,6 +13,8 @@ const APP_COMMIT = sha("1", 40);
 const APP_TREE = sha("2", 40);
 const STAGING_HEAD = sha("3", 40);
 const SUPERSEDED_HELPER_BLOB = "30ee1ec77efe72d754a17ecc839f0cfa581542ce";
+const PREVIOUS_HELPER_BLOB = "76e408175ac0ff8b207665475f9f5d1240766738";
+const REVIEWED_PREVIOUS_HELPER_BLOB = "6228f794a510b6f00139c5edc16d9a589a806006";
 
 function jsonResponse(value, status = 200) {
   return {
@@ -520,6 +522,8 @@ describe("post-approval private source attestation", () => {
     ["tree mismatch", (s) => { s.commit.commit.tree.sha = sha("7", 40); }, "SOURCE_ATTESTATION_PIN"],
     ["altered infrastructure blob", (s) => { s.blobs.set("deploy/production/Caddyfile", sha("7", 40)); }, "SOURCE_ATTESTATION_PIN"],
     ["superseded deploy helper blob", (s) => { s.blobs.set("deploy/production/host/hfs-deploy-release", SUPERSEDED_HELPER_BLOB); }, "SOURCE_ATTESTATION_PIN"],
+    ["previous deploy helper blob", (s) => { s.blobs.set("deploy/production/host/hfs-deploy-release", PREVIOUS_HELPER_BLOB); }, "SOURCE_ATTESTATION_PIN"],
+    ["reviewed previous deploy helper blob", (s) => { s.blobs.set("deploy/production/host/hfs-deploy-release", REVIEWED_PREVIOUS_HELPER_BLOB); }, "SOURCE_ATTESTATION_PIN"],
   ]) {
     it(`rejects ${name}`, async () => {
       const { request } = configureImage();

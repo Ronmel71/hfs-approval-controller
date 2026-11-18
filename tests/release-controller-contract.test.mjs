@@ -13,6 +13,8 @@ const sha = (character, length = 64) => character.repeat(length);
 const APP_COMMIT = sha("1", 40);
 const APP_TREE = sha("2", 40);
 const SUPERSEDED_HELPER_BLOB = "30ee1ec77efe72d754a17ecc839f0cfa581542ce";
+const PREVIOUS_HELPER_BLOB = "76e408175ac0ff8b207665475f9f5d1240766738";
+const REVIEWED_PREVIOUS_HELPER_BLOB = "6228f794a510b6f00139c5edc16d9a589a806006";
 
 function fixture(purpose = "RELEASE_IMAGE_ONLY") {
   const purposePolicy = POLICY.purposes[purpose];
@@ -197,6 +199,8 @@ describe("release controller request contract", () => {
     ["malformed app tree", "RELEASE_IMAGE_ONLY", (r) => { r.app.tree = sha("A", 40); }, "CONTRACT_APP_PIN"],
     ["wrong app workflow blob", "RELEASE_IMAGE_ONLY", (r) => { r.app.workflowBlob = sha("3", 40); }, "CONTRACT_APP_PIN"],
     ["superseded deploy helper blob", "RELEASE_DEPLOY_ONLY", (r) => { r.app.helperBlob = SUPERSEDED_HELPER_BLOB; }, "CONTRACT_APP_PIN"],
+    ["previous deploy helper blob", "RELEASE_DEPLOY_ONLY", (r) => { r.app.helperBlob = PREVIOUS_HELPER_BLOB; }, "CONTRACT_APP_PIN"],
+    ["reviewed previous deploy helper blob", "RELEASE_DEPLOY_ONLY", (r) => { r.app.helperBlob = REVIEWED_PREVIOUS_HELPER_BLOB; }, "CONTRACT_APP_PIN"],
     ["wrong deploy helper blob", "RELEASE_DEPLOY_ONLY", (r) => { r.app.helperBlob = sha("3", 40); }, "CONTRACT_APP_PIN"],
     ["mutable controller ref", "RELEASE_IMAGE_ONLY", (r) => { r.controller.ref = "refs/tags/latest"; }, "CONTRACT_CONTROLLER_PIN"],
     ["wrong controller workflow", "RELEASE_IMAGE_ONLY", (r) => { r.controller.workflow = ".github/workflows/other.yml"; }, "CONTRACT_CONTROLLER_PIN"],
