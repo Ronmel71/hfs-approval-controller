@@ -1,5 +1,18 @@
 # Current status
 
+## 2026-11-18 — issue #455 partial WireGuard cleanup and final-freshness repair
+
+- Existing PR #21 and branch `fix/issue-443-wg-basename` were updated in place from the exact reviewed head `5c19afa937a19a192233f436700c8d9a54574a26` and unchanged base `main` `1b70aefc5c8e09f2ddcfc335df5bb2bb75352de5`. No replacement branch or PR was created.
+- The connectivity executor now requires a valid unexpired request deadline at entry and immediately before WireGuard or remote operations. It proves the exact `hfs-check` link is absent before `up`, distinguishes clean failure from a job-created partial interface, tears down only a link this job can own, and independently proves absence after cleanup. Pre-existing links are untouched; ambiguous probes or residue return `HOST_CONNECTIVITY_ONLY_INCOMPLETE` without PASS.
+- The protected workflow installs only official WireGuard tools before the final exact-source/native-approval/environment/protection/freshness verification, while the credential-free validation job remains before native approval and host secrets remain referenced only after the final gate. The validated expiry is passed to the executor. Code-only CI now invokes `bash -n` separately for every listed shell file.
+- Synthetic coverage includes a pre-existing unrelated interface, clean and partial `wg-quick up` failures, normal post-up operation failure, nonzero and false-success teardown residue, state-probe ambiguity, malformed/expired deadlines, expiry before network and expiry after setup/before SSH, secure temporary-file cleanup, no false PASS, and the real distro `wg-quick strip`/short-basename regression. No real interface, route, tunnel, SSH connection or remote command is used by these tests.
+- Only `.github/workflows/controller-code-only.yml`, `.github/workflows/host-connectivity-only.yml`, `scripts/host-connectivity-only.sh`, `tests/host-connectivity-only.test.mjs`, `tests/host-connectivity-only.test.sh`, and this status file change for issue #455. Existing release workflows/executors, contract/preflight, legacy connectivity flow and the already-reviewed deploy basename correction remain outside this repair.
+- No real connection, interface/root/host mutation, workflow dispatch/rerun, native approval, secret/environment/policy change, image/registry action, private-app write, merge or deploy occurred. Work/Codex/delegation: 0.
+
+### Next gate
+
+Review the updated PR #21 and its exact-head code-only CI. Merge, dispatch, native approval, any real connectivity check and deployment remain separately unauthorized.
+
 ## 2026-11-18 — issue #452 gated read-only host connectivity candidate
 
 - Existing controller PR #21 and branch `fix/issue-443-wg-basename` were extended in place from the issue-pinned head `800bfc50ccd47918091664b68c2b35f0b85cc0e3`; protected `main` remains exactly `1b70aefc5c8e09f2ddcfc335df5bb2bb75352de5`. The final code commit is `07d11dd0cc9c83a83485554bfe56e96a3dc10c44`, tree `96a58d847dbb062354f0fd55df2fc32c43f214e0`. No second PR or private-app ref/status branch was created or changed.

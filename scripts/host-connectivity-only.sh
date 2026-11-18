@@ -15,16 +15,57 @@ die() {
 job_root=""
 wg_path=""
 ssh_root=""
-wg_up=0
+wg_attempted=0
+wg_owned=0
+wg_state_ambiguous=0
 completed=0
 
+interface_state() {
+  local links
+  links="$(ip -o link show 2>/dev/null)" || return 2
+  if awk -F ': ' -v wanted="$INTERFACE_NAME" '
+    {
+      name=$2
+      sub(/@.*/, "", name)
+      if (name == wanted) found=1
+    }
+    END { exit(found ? 0 : 1) }
+  ' <<< "$links"; then
+    return 0
+  fi
+  return 1
+}
+
+interface_owned_by_job() {
+  local observed_public_key
+  observed_public_key="$(sudo wg show "$INTERFACE_NAME" public-key 2>/dev/null)" || return 1
+  [[ "$observed_public_key" == "$expected_client_public_key" ]]
+}
+
+require_fresh() {
+  local now_epoch
+  now_epoch="$(date +%s)" || die EXPIRY
+  [[ "$now_epoch" =~ ^[0-9]{10}$ ]] || die EXPIRY
+  (( now_epoch < HFS_CONNECTIVITY_EXPIRES_AT_EPOCH )) || die EXPIRED
+}
+
 cleanup() {
-  local status=$? cleanup_failed=0
+  local status=$? cleanup_failed=0 state_status
   trap - EXIT
-  if [[ "$wg_up" == 1 ]]; then
+  if [[ "$wg_owned" == 1 ]]; then
     if ! sudo wg-quick down "$wg_path" >/dev/null 2>&1; then
       cleanup_failed=1
     fi
+    if interface_state; then
+      cleanup_failed=1
+    else
+      state_status=$?
+      if [[ "$state_status" != 1 ]]; then
+        cleanup_failed=1
+      fi
+    fi
+  elif [[ "$wg_state_ambiguous" == 1 ]]; then
+    cleanup_failed=1
   fi
   if [[ -n "$job_root" && -d "$job_root" ]]; then
     if ! find "$job_root" -type f -exec shred -u -- {} + >/dev/null 2>&1; then
@@ -59,6 +100,8 @@ trap cleanup EXIT
 [[ "${HFS_CONNECTIVITY_PURPOSE:-}" == HOST_CONNECTIVITY_ONLY ]] || die PURPOSE
 [[ "${HFS_CONNECTIVITY_CONTROLLER_HEAD:-}" =~ ^[0-9a-f]{40}$ && "${GITHUB_SHA:-}" == "$HFS_CONNECTIVITY_CONTROLLER_HEAD" ]] || die CONTROLLER_HEAD
 [[ "${HFS_CONNECTIVITY_REMOTE_HELPER_SHA256:-}" == "$EXPECTED_HELPER_SHA256" ]] || die HELPER_PIN
+[[ "${HFS_CONNECTIVITY_EXPIRES_AT_EPOCH:-}" =~ ^[0-9]{10}$ ]] || die EXPIRY
+require_fresh
 [[ "${DEPLOY_WIREGUARD_HOST:-}" == "$REMOTE_HOST" ]] || die WG_HOST
 [[ "${DEPLOY_USER:-}" == "$REMOTE_USER" ]] || die SSH_USER
 [[ -n "${DEPLOY_WIREGUARD_CONFIG:-}" && -n "${DEPLOY_SSH_KEY:-}" && -n "${DEPLOY_SSH_KNOWN_HOSTS:-}" ]] || die HOST_CREDENTIAL
@@ -134,6 +177,7 @@ keepalive="$(config_value Peer PersistentKeepalive)"
 [[ "$preshared_key" != AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= ]] || die WG_PSK
 client_public_key="$(printf '%s\n' "$private_key" | wg pubkey 2>/dev/null)" || die WG_PRIVATE_KEY
 [[ "$client_public_key" =~ ^[A-Za-z0-9+/]{43}=$ && "$client_public_key" != "$server_public_key" ]] || die WG_BINDING
+expected_client_public_key="$client_public_key"
 [[ "$endpoint" =~ ^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\]):[1-9][0-9]{0,4}$ ]] || die WG_ENDPOINT
 endpoint_port="${endpoint##*:}"
 (( endpoint_port <= 65535 )) || die WG_ENDPOINT
@@ -177,12 +221,46 @@ Host hfs-production
 EOF
 chmod 0600 "$ssh_root/config"
 
+if interface_state; then
+  die WG_PREEXISTING
+else
+  state_status=$?
+  if [[ "$state_status" != 1 ]]; then
+    wg_state_ambiguous=1
+    die WG_STATE
+  fi
+fi
+
+require_fresh
 start_epoch="$(date +%s)"
-sudo wg-quick up "$wg_path" >/dev/null 2>&1 || die WG_UP
-wg_up=1
+wg_attempted=1
+set +e
+sudo wg-quick up "$wg_path" >/dev/null 2>&1
+up_status=$?
+set -e
+
+if interface_state; then
+  if [[ "$wg_attempted" == 1 ]] && interface_owned_by_job; then
+    wg_owned=1
+  else
+    wg_state_ambiguous=1
+    die WG_OWNERSHIP
+  fi
+else
+  state_status=$?
+  if [[ "$state_status" != 1 ]]; then
+    wg_state_ambiguous=1
+    die WG_STATE
+  fi
+fi
+if [[ "$up_status" != 0 ]]; then
+  die WG_UP
+fi
+[[ "$wg_owned" == 1 ]] || die WG_STATE
 
 ssh_read() {
   local remote_command=$1 output_path=$2
+  require_fresh
   ssh -F "$ssh_root/config" hfs-production "$remote_command" > "$output_path" 2>/dev/null
 }
 
@@ -191,6 +269,7 @@ ssh_read 'id -un' "$identity_path" || die SSH_IDENTITY
 [[ "$(<"$identity_path")" == hfsdeploy ]] || die REMOTE_IDENTITY
 
 handshake_path="$job_root/handshake"
+require_fresh
 sudo wg show "$INTERFACE_NAME" latest-handshakes > "$handshake_path" 2>/dev/null || die WG_HANDSHAKE
 [[ "$(awk 'NF == 2 { count++; timestamp=$2 } END { if (count == 1) print timestamp }' "$handshake_path")" =~ ^[1-9][0-9]{9}$ ]] || die WG_HANDSHAKE
 handshake_epoch="$(awk 'NF == 2 { timestamp=$2 } END { print timestamp }' "$handshake_path")"

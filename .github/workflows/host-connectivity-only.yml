@@ -118,7 +118,12 @@ jobs:
         with:
           ref: ${{ inputs.controller_head }}
           persist-credentials: false
-      - name: Re-read exact source, native approval, environment, and protected main
+      - name: Install official WireGuard tools only in this disposable gated runner
+        run: |
+          set -euo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install --yes wireguard-tools >/dev/null
+      - name: Final re-read of exact source, native approval, environment, protection, and freshness
         env:
           GH_TOKEN: ${{ github.token }}
           HFS_CONTROLLER_ADMIN_READ_TOKEN: ${{ secrets.HFS_CONTROLLER_ADMIN_READ_TOKEN }}
@@ -139,11 +144,6 @@ jobs:
           test "$(git rev-parse HEAD:scripts/host-connectivity-only.mjs)" = "$HFS_CONNECTIVITY_GUARD_BLOB"
           test "$(git rev-parse HEAD:scripts/host-connectivity-only.sh)" = "$HFS_CONNECTIVITY_EXECUTOR_BLOB"
           node scripts/host-connectivity-only.mjs verify-native-gate
-      - name: Install official WireGuard tools only in this disposable gated runner
-        run: |
-          set -euo pipefail
-          sudo apt-get update >/dev/null
-          sudo apt-get install --yes wireguard-tools >/dev/null
       - name: Run the fixed read-only host connectivity check
         env:
           DEPLOY_WIREGUARD_CONFIG: ${{ secrets.DEPLOY_WIREGUARD_CONFIG }}
@@ -152,6 +152,7 @@ jobs:
           DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           HFS_CONNECTIVITY_PURPOSE: ${{ inputs.purpose }}
+          HFS_CONNECTIVITY_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}
           HFS_CONNECTIVITY_CONTROLLER_HEAD: ${{ inputs.controller_head }}
           HFS_CONNECTIVITY_REMOTE_HELPER_SHA256: ${{ inputs.remote_helper_sha256 }}
         run: scripts/host-connectivity-only.sh

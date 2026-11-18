@@ -184,6 +184,14 @@ describe("host connectivity native gate", () => {
     assert.equal(result.enforceAdmins, true);
   });
 
+  it("refuses at the final gate when a request that was initially fresh expires during tool setup", () => {
+    const request = fixture();
+    assert.equal(validateConnectivityRequest(request, options(request)).purpose, "HOST_CONNECTIVITY_ONLY");
+    const afterSetup = evidence(request);
+    afterSetup.nowEpoch = request.expiresAtEpoch;
+    assert.throws(() => validateConnectivityGateEvidence(request, afterSetup), /NATIVE_APPROVAL_FRESHNESS/);
+  });
+
   for (const [name, mutate, code] of [
     ["missing native approval", (item) => { item.approvals = []; }, "NATIVE_APPROVAL_COUNT"],
     ["wrong environment ID", (item) => { item.environment.id += 1; }, "NATIVE_ENVIRONMENT"],
@@ -225,8 +233,9 @@ describe("manual read-only connectivity workflow", () => {
     assert.doesNotMatch(preGate, /secrets\.|DEPLOY_|wg-quick|\bssh\b/);
     assert.match(protectedJob, /needs: validate-request/);
     assert.match(protectedJob, /environment: production-host-deployment/);
+    assert.ok(protectedJob.indexOf("apt-get install --yes wireguard-tools") < protectedJob.indexOf("verify-native-gate"));
     assert.ok(protectedJob.indexOf("verify-native-gate") < protectedJob.indexOf("DEPLOY_WIREGUARD_CONFIG"));
-    assert.ok(protectedJob.indexOf("verify-native-gate") < protectedJob.indexOf("apt-get install --yes wireguard-tools"));
+    assert.ok(protectedJob.lastIndexOf("HFS_CONNECTIVITY_EXPIRES_AT_EPOCH: ${{ inputs.expires_at_epoch }}") > protectedJob.indexOf("verify-native-gate"));
   });
 
   it("references only the five host transport secrets plus the existing Administration reader", () => {
