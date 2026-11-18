@@ -20,8 +20,9 @@ jobs:
         run: node --test tests/connectivity-only-review.test.mjs
       - name: Test dormant two-purpose release controller contracts
         run: |
-          node --test tests/release-controller-contract.test.mjs tests/release-controller-preflight.test.mjs tests/release-controller-workflows.test.mjs tests/native-capability-probe.test.mjs tests/controller-admin-read-preflight.test.mjs
-          bash -n scripts/release-image-only.sh scripts/release-deploy-only.sh tests/pinned-app-source.test.sh
+          node --test tests/release-controller-contract.test.mjs tests/release-controller-preflight.test.mjs tests/release-controller-workflows.test.mjs tests/native-capability-probe.test.mjs tests/controller-admin-read-preflight.test.mjs tests/host-connectivity-only.test.mjs
+          bash -n scripts/release-image-only.sh scripts/release-deploy-only.sh scripts/host-connectivity-only.sh tests/pinned-app-source.test.sh tests/release-deploy-wg-quick.test.sh tests/host-connectivity-only.test.sh
+          bash tests/host-connectivity-only.test.sh
       - name: Test inert workflow contract
         run: |
           bash tests/install-only-workflow.test.sh
