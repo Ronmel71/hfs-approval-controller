@@ -2,11 +2,6 @@
 set -euo pipefail
 
 executor="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/host-connectivity-only.sh"
-command -v unshare >/dev/null || {
-  printf 'unshare is required for the real wg-quick strip proof\n' >&2
-  exit 69
-}
-
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 mkdir "$test_root/bin" "$test_root/proof-bin"
@@ -142,7 +137,11 @@ done
 proof_config="$test_root/hfs-check.conf"
 write_config "$proof_config"
 export WG_PROOF_CALLED="$test_root/proof-called"
-PATH="$test_root/proof-bin:$PATH" unshare -Ur -- "$real_wg_quick" strip "$proof_config" > "$test_root/proof.out" 2> "$test_root/proof.err"
+if command -v unshare >/dev/null && unshare -Ur -- true >/dev/null 2>&1; then
+  PATH="$test_root/proof-bin:$PATH" unshare -Ur -- "$real_wg_quick" strip "$proof_config" > "$test_root/proof.out" 2> "$test_root/proof.err"
+else
+  sudo -n env PATH="$test_root/proof-bin:$PATH" "$real_wg_quick" strip "$proof_config" > "$test_root/proof.out" 2> "$test_root/proof.err"
+fi
 grep -Fxq '[Interface]' "$test_root/proof.out"
 grep -Fxq '[Peer]' "$test_root/proof.out"
 [[ ! -e "$WG_PROOF_CALLED" ]]
