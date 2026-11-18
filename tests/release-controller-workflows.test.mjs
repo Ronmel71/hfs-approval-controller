@@ -11,7 +11,8 @@ const contractScript = readFileSync(new URL("../scripts/release-controller-contr
 const preflightScript = readFileSync(new URL("../scripts/release-controller-preflight.mjs", import.meta.url), "utf8");
 const existingGate = readFileSync(new URL("../.github/workflows/stage-only-review.yml", import.meta.url));
 const gitBlob = (bytes) => createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-const CORRECTED_HELPER_BLOB = "76e408175ac0ff8b207665475f9f5d1240766738";
+const CORRECTED_HELPER_BLOB = "6228f794a510b6f00139c5edc16d9a589a806006";
+const PREVIOUS_HELPER_BLOB = "76e408175ac0ff8b207665475f9f5d1240766738";
 const SUPERSEDED_HELPER_BLOB = "30ee1ec77efe72d754a17ecc839f0cfa581542ce";
 
 describe("two-purpose controller workflows", () => {
@@ -136,6 +137,7 @@ describe("two-purpose controller workflows", () => {
   it("accepts only the corrected helper at contract and executor boundaries", () => {
     for (const source of [contractScript, imageScript, deployScript]) {
       assert.match(source, new RegExp(CORRECTED_HELPER_BLOB));
+      assert.doesNotMatch(source, new RegExp(PREVIOUS_HELPER_BLOB));
       assert.doesNotMatch(source, new RegExp(SUPERSEDED_HELPER_BLOB));
     }
   });

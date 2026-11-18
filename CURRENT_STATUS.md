@@ -1,5 +1,16 @@
 # Current status
 
+## 2026-11-18 — issue #457 incoming-owner release-source pin candidate
+
+- The release controller policy plus image and deploy executors now accept only corrected app helper blob `6228f794a510b6f00139c5edc16d9a589a806006` (26,888 bytes, SHA-256 `142dae3f181cd66ea7703b24da9948631c43b4c64adfd4b87ee799dfae8f5626`). Contract, private-source attestation and executor-boundary regressions explicitly reject both previous blob `76e408175ac0ff8b207665475f9f5d1240766738` and older superseded blob `30ee1ec77efe72d754a17ecc839f0cfa581542ce`. App commit/tree remain exact dynamic request inputs and are not replaced with a branch-only pin.
+- This pin candidate is linked to private app PR #458 / issue #457 and is valid only after the corrected app source is reviewed and merged to `staging`. The current published image remains bound to app commit `3e143784a0c83cdacf584267a57aa8476433ea89`, tree `a5f3d7179014931ba9d9f5d4e85a6b131fe76e2c`, and old helper blob; its publication provenance must not be reused for the new app SHA. `tests/pinned-app-source.test.sh` intentionally remains the historical old-source fixture until a concrete merged `staging` SHA/tree exists.
+- Connectivity policy, workflow and executor deliberately remain pinned to installed host-helper SHA-256 `1889dea8df10f9dfd11f51fe845703758577b0f1af4ac6960fd5f846db4b0351`. They must change only after a separately authorized installation and independent readback of the new host helper; this issue performs no host access or installation. No workflow dispatch/rerun/approval, environment/secret change, image action, host/network/root action, private-app mutation, merge or deploy occurred. Work/Codex/delegation: 0.
+- Local CI-equivalent verification passes all 209 Node contracts, every code-only shell/security suite, Bash syntax for all controller shell entry points, and `git diff --check`. The added cases reject both prior helper blobs at request-contract, authenticated private-source and executor boundaries. No pinned-source PASS is claimed for the unmerged app candidate.
+
+### Next gate
+
+Review app PR #458 and this linked controller pin PR. After a separately authorized app merge, record the exact merged app SHA/tree and update the historical pinned-source fixture. Image publication for that exact new source, helper installation/readback, connectivity repinning, controller merges, and deploy each remain separately authorized later gates.
+
 ## 2026-11-18 — issue #455 partial WireGuard cleanup and final-freshness repair
 
 - Existing PR #21 and branch `fix/issue-443-wg-basename` were updated in place from the exact reviewed head `5c19afa937a19a192233f436700c8d9a54574a26` and unchanged base `main` `1b70aefc5c8e09f2ddcfc335df5bb2bb75352de5`. No replacement branch or PR was created.
