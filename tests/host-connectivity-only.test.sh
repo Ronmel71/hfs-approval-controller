@@ -174,7 +174,7 @@ case "$command" in
     if [[ "${SSH_MODE:-success}" == wrong_helper_hash ]]; then
       printf '%064d  /usr/local/sbin/hfs-deploy-release\n' 0
     else
-      printf '1889dea8df10f9dfd11f51fe845703758577b0f1af4ac6960fd5f846db4b0351  /usr/local/sbin/hfs-deploy-release\n'
+      printf 'd9b8296d9cc32757e611b547f222c94976dea5dd8de38986dbb84401fd8565ad  /usr/local/sbin/hfs-deploy-release\n'
     fi
     ;;
   'sudo -n /usr/local/sbin/hfs-deploy-release --check')
@@ -248,7 +248,7 @@ run_case() {
     HFS_CONNECTIVITY_PURPOSE=HOST_CONNECTIVITY_ONLY \
     HFS_CONNECTIVITY_EXPIRES_AT_EPOCH="$expiry" \
     HFS_CONNECTIVITY_CONTROLLER_HEAD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
-    HFS_CONNECTIVITY_REMOTE_HELPER_SHA256=1889dea8df10f9dfd11f51fe845703758577b0f1af4ac6960fd5f846db4b0351 \
+    HFS_CONNECTIVITY_REMOTE_HELPER_SHA256=d9b8296d9cc32757e611b547f222c94976dea5dd8de38986dbb84401fd8565ad \
     DEPLOY_WIREGUARD_HOST=10.77.0.1 \
     DEPLOY_USER=hfsdeploy \
     DEPLOY_WIREGUARD_CONFIG="$(<"$config")" \
