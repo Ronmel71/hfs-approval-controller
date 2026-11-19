@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly EXPECTED_HELPER_SHA256=1889dea8df10f9dfd11f51fe845703758577b0f1af4ac6960fd5f846db4b0351
+readonly EXPECTED_HELPER_SHA256=d9b8296d9cc32757e611b547f222c94976dea5dd8de38986dbb84401fd8565ad
 readonly INTERFACE_NAME=hfs-check
 readonly REMOTE_HOST=10.77.0.1
 readonly REMOTE_USER=hfsdeploy
